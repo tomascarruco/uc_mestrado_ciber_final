@@ -1,0 +1,31 @@
+---
+BasedOnStyle: GNU
+Language: C
+IndentWidth: 4
+BreakBeforeBraces: Stroustrup
+
+AllowShortFunctionsOnASingleLine: None
+AlignArrayOfStructures: Left
+AlignConsecutiveDeclarations: true
+AlignConsecutiveAssignments:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+  AlignCompound: true
+  PadOperators: true
+
+Standard: Latest
+ColumnLimit: 81
+UseTab: Never
+
+SpaceAfterCStyleCast: true
+PointerAlignment: Right
+
+# Force arguments to be on separate lines with closing paren on new line
+BinPackArguments: false
+BinPackParameters: false
+AllowAllArgumentsOnNextLine: false
+AllowAllParametersOfDeclarationOnNextLine: false
+
+# This puts the closing parenthesis on a new line
+AlignAfterOpenBracket: BlockIndent

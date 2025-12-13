@@ -1,0 +1,42 @@
+# [language-server.arduino-lsp]
+# command = "arduino-language-server"
+# args = [
+#     "-cli-config", "/home/tomasmarques/.arduino15/arduino-cli.yaml",
+#     "-cli", "/home/tomasmarques/.local/bin/arduino-cli",
+#     "-fqbn", "arduino:samd:nano_33_iot",
+#     "-clangd", "/usr/bin/clangd",
+#     "-log"
+# ]
+
+# pio platform install atmelsam --force
+# pio run -t compiledb
+
+[language-server.arduino-lsp]
+command = "clangd"
+args = [
+    "--background-index",
+    "--clang-tidy",
+    "--completion-style=detailed",
+    "--header-insertion=never",
+    # "--query-driver=/usr/bin/arm-none-eabi-g++,/usr/bin/g++,"
+    # "--query-driver=/home/tomasmarques/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-*",
+    "--query-driver=/home/tomasmarques/.platformio/packages/toolchain-gccarmnoneeabi/bin/arm-none-eabi-gcc",
+    "--background-index"
+]
+
+[[language]]
+name = "cpp"
+scope = "source.cpp"
+injection-regex = "c"
+file-types = ["c", "h", "cpp", "hpp", "ino"]
+comment-token = "//"
+block-comment-tokens = { start = "/*", end = "*/" }
+formatter = { command = "clang-format", args = ["--assume-filename=.cpp"] }
+auto-format = true
+language-servers = [ "clangd" ]
+indent = { tab-width = 2, unit = "  " }
+
+# [editor.lsp]
+# display-messages = true
+# display-inlay-hints = true
+

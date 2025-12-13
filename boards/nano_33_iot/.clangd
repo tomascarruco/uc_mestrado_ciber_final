@@ -1,0 +1,4 @@
+CompileFlags:
+  CompilationDatabase: .
+  Add:
+    - -ferror-limit=0
