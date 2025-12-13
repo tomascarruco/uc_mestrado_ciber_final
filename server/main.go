@@ -30,9 +30,9 @@ func handle_connection(con net.Conn) {
 	remote_addr := con.RemoteAddr()
 	defer con.Close()
 
-	bufferedReader := bufio.NewReader(con)
+	bufferedReader_ptr := bufio.NewReader(con)
 
-	msg, err := bufferedReader.ReadString('\n')
+	msg, err := bufferedReader_ptr.ReadString('\n')
 	if err != nil {
 		log.Printf("(con>%s) Failed to read all of the content present: %s\n", remote_addr, err.Error())
 		return
