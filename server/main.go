@@ -1,54 +1,68 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2022 mochi-mqtt, mochi-co
+// SPDX-FileContributor: mochi-co
+
 package main
 
 import (
-	"bufio"
 	"log"
-	"net"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/mochi-mqtt/server/v2/hooks/auth"
+	"github.com/mochi-mqtt/server/v2/listeners"
+
+	mqtt "github.com/mochi-mqtt/server/v2"
+	"github.com/mochi-mqtt/server/v2/packets"
 )
 
 func main() {
-	listener, err := net.Listen("tcp4", "0.0.0.0:5678")
+	sigs := make(chan os.Signal, 1)
+	done := make(chan bool, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		done <- true
+	}()
+
+	server := mqtt.New(&mqtt.Options{
+		InlineClient: true, // you must enable inline client to use direct publishing and subscribing.
+	})
+	_ = server.AddHook(new(auth.AllowHook), nil)
+
+	tcp := listeners.NewTCP(listeners.Config{ID: "t1", Address: ":1883"})
+	err := server.AddListener(tcp)
 	if err != nil {
-		log.Fatalf("Error accepting connection to server: %s", err.Error())
+		log.Fatal(err)
 	}
 
-	log.Println("[INFO] Listening on port 5678...")
-	for {
-		con, err := listener.Accept()
-		if err != nil {
-			log.Fatalf("Error accepting connection to server: %s", err.Error())
+	go func() {
+		// Subscribe to a filter and handle any received messages via a callback function.
+		callbackFn := func(cl *mqtt.Client, sub packets.Subscription, pk packets.Packet) {
+			log.Printf("Message received: %s\n", string(pk.Payload))
 		}
+		server.Log.Info("inline client subscribing")
+		_ = server.Subscribe("main/#", 1, callbackFn)
+	}()
 
-		log.Println("Connection accepted!")
-		go handle_connection(con)
-	}
-}
+	// Start the server
+	go func() {
+		err := server.Serve()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 
-func handle_connection(con net.Conn) {
+	// go func() {
+	// 	time.Sleep(time.Second * 10)
+	// 	// Unsubscribe from the same filter to stop receiving messages.
+	// 	server.Log.Info("inline client unsubscribing")
+	// 	_ = server.Unsubscribe("direct/#", 1)
+	// }()
 
-	remote_addr := con.RemoteAddr()
-	defer con.Close()
-
-	bufferedReader_ptr := bufio.NewReader(con)
-
-	msg, err := bufferedReader_ptr.ReadString('\n')
-	if err != nil {
-		log.Printf("(con>%s) Failed to read all of the content present: %s\n", remote_addr, err.Error())
-		return
-	}
-
-	log.Printf("(con>%s) Message: %s\n", remote_addr, strings.Trim(msg, "\n"))
-
-	n_wrote, err := con.Write([]byte(msg))
-	if n_wrote != len(msg) {
-		log.Printf("(con>%s) Failed to write all of the content to client\n", remote_addr)
-		return
-	}
-	if err != nil {
-		log.Printf("(con>%s) Error when writing to the client: %s\n", remote_addr, err.Error())
-		return
-	}
-
-	log.Printf("(con>%s) Bye!\n", remote_addr)
+	<-done
+	server.Log.Warn("caught signal, stopping...")
+	_ = server.Close()
+	server.Log.Info("main.go finished")
 }
