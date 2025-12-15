@@ -1,122 +1,130 @@
-/*
- This example  prints the board's MAC address, and
- scans for available WiFi networks using the NINA module.
- Every ten seconds, it scans again. It doesn't actually
- connect to any network, so no encryption scheme is specified.
-
- Circuit:
- * Board with NINA module (Arduino MKR WiFi 1010, MKR VIDOR 4000 and Uno WiFi Rev.2)
-
- created 13 July 2010
- by dlf (Metodo2 srl)
- modified 21 Junn 2012
- by Tom Igoe and Jaymes Dec
- */
-
-
 #include <Arduino.h>
 #include <SPI.h>
-#include <WiFi.h>
 #include <WiFiNINA.h>
+#include <cstdint>
 
-void printEncryptionType(int thisType) ;
-void listNetworks() ;
-void printMacAddress(byte mac[]);
-  
-void setup() {
-  //Initialize serial and wait for port to open:
-  Serial.begin(9600);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }
+#include "PubSubClient.h"
+#include "WiFi.h"
+#include "WiFiClient.h"
+#include "api/Common.h"
+#include "api/IPAddress.h"
+#include "secrets.h"
+#include "variant.h"
 
-  // check for the WiFi module:
-  if (WiFi.status() == WL_NO_MODULE) {
-    Serial.println("Communication with WiFi module failed!");
-    // don't continue
-    while (true);
-  }
+#define PUB_TOPIC "main/one"
+#define SERVER_ADDR "192.168.1.145"
+#define SERVER_MQTT_PORT 1883
 
-  String fv = WiFi.firmwareVersion();
-  if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
-    Serial.println("Please upgrade the firmware");
-  }
+char ssid[] = AP_SSID;
+char pass[] = AP_PASS;
+int  status = WL_IDLE_STATUS;
 
-  // print your MAC address:
-  byte mac[6];
-  WiFi.macAddress(mac);
-  Serial.print("MAC: ");
-  printMacAddress(mac);
-}
+IPAddress mqtt_server = IPAddress (SERVER_ADDR);
 
-void loop() {
-  // scan for existing networks:
-  Serial.println("Scanning available networks...");
-  listNetworks();
-  delay(10000);
-}
+// Declarations
+int  APConnect (const char ssid[], const char pass[]);
+void reconnect ();
+void callback (char *topic, byte *payload, unsigned int length);
 
-void listNetworks() {
-  // scan for nearby networks:
-  Serial.println("** Scan Networks **");
-  int numSsid = WiFi.scanNetworks();
-  if (numSsid == -1) {
-    Serial.println("Couldn't get a WiFi connection");
-    while (true);
-  }
+WiFiClient   wifi_client;
+PubSubClient client (wifi_client);
 
-  // print the list of networks seen:
-  Serial.print("number of available networks:");
-  Serial.println(numSsid);
+const char *device_name = "";
 
-  // print the network number and name for each network found:
-  for (int thisNet = 0; thisNet < numSsid; thisNet++) {
-    Serial.print(thisNet);
-    Serial.print(") ");
-    Serial.print(WiFi.SSID(thisNet));
-    Serial.print("\tSignal: ");
-    Serial.print(WiFi.RSSI(thisNet));
-    Serial.print(" dBm");
-    Serial.print("\tEncryption: ");
-    printEncryptionType(WiFi.encryptionType(thisNet));
-  }
-}
-
-void printEncryptionType(int thisType) {
-  // read the encryption type and print out the name:
-  switch (thisType) {
-    case ENC_TYPE_WEP:
-      Serial.println("WEP");
-      break;
-    case ENC_TYPE_TKIP:
-      Serial.println("WPA");
-      break;
-    case ENC_TYPE_CCMP:
-      Serial.println("WPA2");
-      break;
-    case ENC_TYPE_NONE:
-      Serial.println("None");
-      break;
-    case ENC_TYPE_AUTO:
-      Serial.println("Auto");
-      break;
-    case ENC_TYPE_UNKNOWN:
-    default:
-      Serial.println("Unknown");
-      break;
-  }
-}
-
-
-void printMacAddress(byte mac[]) {
-  for (int i = 5; i >= 0; i--) {
-    if (mac[i] < 16) {
-      Serial.print("0");
+void
+setup ()
+{
+    Serial.begin (9600);
+    while (!Serial) {
+        ; // wait for serial port to connect.
     }
-    Serial.print(mac[i], HEX);
-    if (i > 0) {
-      Serial.print(":");
+
+    client.setServer (mqtt_server, SERVER_MQTT_PORT);
+    client.setCallback (callback);
+
+    int result = APConnect (ssid, pass);
+    if (!result) {
+        Serial.println ("[INFO] Connected to the AP!");
+    } else {
+        Serial.println ("[ERRR] Unable to Connect to the AP!");
     }
-  }
-  Serial.println();
+    delay (1.5 * 1000);
+
+    IPAddress address = WiFi.localIP ();
+    Serial.print ("[INFO] Current IP Addr: ");
+    Serial.println (address.toString ());
+}
+
+void
+loop ()
+{
+    if (!client.connected ())
+        reconnect ();
+    client.loop ();
+}
+
+// --- Functions - START
+
+void
+reconnect ()
+{
+    while (!client.connected ()) {
+        Serial.println ("Attempting client connection");
+
+        boolean client_connected = client.connect ("nano_33_iot");
+        if (!client_connected) {
+            Serial.println ("Failed connecting Client...");
+            Serial.print ("Client state, rc=");
+            Serial.println (client.state ());
+            delay (3 * 1000);
+            continue;
+        }
+
+        Serial.println ("Client connected!!!");
+        client.subscribe (PUB_TOPIC);
+        client.publish (PUB_TOPIC, "HELLO FROM NANO33IOT");
+    }
+}
+
+int
+APConnect (const char ssid[], const char pass[])
+{
+    String fv = WiFi.firmwareVersion ();
+    if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+        Serial.println ("[WARN] UPGRADE THE FIRMWARE!");
+        return -1;
+    }
+
+    int retries    = 3;
+    int iterations = 0;
+
+    do {
+        if (iterations >= retries)
+            return -2;
+
+        Serial.print ("[INFO] Attempting to connect to the WPA SSID: ");
+        Serial.println (ssid);
+
+        status = WiFi.begin (ssid, pass);
+
+        delay (3 * 1000);
+        iterations += 1;
+    } while (status != WL_CONNECTED);
+
+    return 0;
+}
+
+void
+callback (char *topic, byte *payload, unsigned int length)
+{
+    Serial.print ("Payload: ");
+    for (uint32_t i = 0; i < length; ++i) {
+        Serial.print ((char) payload[i]);
+    }
+    Serial.print (" Topic: ");
+    Serial.print (topic);
+    Serial.print (" Length: ");
+    Serial.print (length);
+
+    Serial.println ();
 }
