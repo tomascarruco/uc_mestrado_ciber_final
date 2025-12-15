@@ -15,8 +15,9 @@ inst_arduino_plat: ## Install the platform specefied, through platformio
 update: ## Update all packages in this project
 	pio pkg update
 
-compile: ## Compile the files into a board flashable image
-	pio run
+VLV ?= 
+compile: $1 ## Compile the files into a board flashable image
+	pio run $(VLV)
 
 upload: ## Compile and upload the image to the board
 	pio run -t upload
@@ -26,3 +27,6 @@ monitor: ## Begin serial communication with the device
 
 up_monitor: ## Compile, upload and begin serial comunication with the device
 	pio run -t upload -t monitor
+
+clean:
+	pio run -t clean
