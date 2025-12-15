@@ -39,12 +39,58 @@ The paper can be found [here](./ArtigoCiber.pdf).
 ```bash
 .
 ├── ArtigoCiber.pdf
-├── Readme.md
 ├── boards
 │   ├── esp32s3
 │   ├── nano_33_iot
+│   │   ├── compile_commands.json
+│   │   ├── include
+│   │   │   ├── README
+│   │   │   └── secrets.h
+│   │   ├── lib
+│   │   │   └── README
+│   │   ├── Makefile
+│   │   ├── platformio.ini
+│   │   ├── sketch.yaml
+│   │   ├── src
+│   │   │   └── main.cpp
+│   │   └── test
+│   │       └── README
 │   └── rp2350
+├── Readme.md
 └── server
-
-6 directories, 2 files
+    ├── go.mod
+    ├── go.sum
+    └── main.go
 ```
+> 10 directories, 14 files
+
+---
+
+## Knowledge Base
+
+### Crypto-Systems and Encription Algorithms
+
+#### Algorithm List
+
+1. AES 
+2. DES 
+3. 3DES 
+4. ChaCha20 
+5. RC4 
+6. Salsa20
+7. RSA 
+8. ECDH 
+9. DSA 
+10. AES-GCM 
+11. ChaCha20-Poly1305
+
+#### Embedded Implementation details
+
+To avoid implementation erros, and acctualy enable us to write, validate and
+experiment with the selected algorithms and boards, we've chosen to utilize
+the Crypto++ library, which can be found [here](https://cryptopp.com/).
+
+This library implements all of the algorithms proposed in the paper's proposal.
+Taking the embedded-focus nature of this papaer, we've decided to use the
+following platformio package - theclocktwister/Crypto++
+
