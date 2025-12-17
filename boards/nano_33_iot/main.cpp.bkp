@@ -1,0 +1,293 @@
+#include <Arduino.h>
+#include <SPI.h>
+#include <WiFiNINA.h>
+
+#include "WiFi.h"
+#include "WiFiClient.h"
+#include "api/Common.h"
+#include "api/IPAddress.h"
+
+#include "variant.h"
+
+#include "secrets.h"
+
+#include "PubSubClient.h"
+
+#include <AES.h>
+#include <Crypto.h>
+#include <cstddef>
+#include <cstdint>
+#include <string.h>
+
+#define MQTT_SUB_TOPIC "device/sub/nano33iot"
+#define MQTT_PUB_TOPIC "device/pub/nano33iot"
+#define MQTT_SRV_ADDR "192.168.1.145"
+#define MQTT_SRV_PORT 1883
+
+#define MSG_PAYLOAD_LEN_NORMAL 456
+#define MSG_PAYLOAD_LEN_STRESS 1024
+#define MSG_PAYLOAD_LEN_STRESS_M MSG_PAYLOAD_LEN_STRESS * 2
+#define MSG_PAYLOAD_LEN_STRESS_H MSG_PAYLOAD_LEN_STRESS_M * 2
+
+#define MEASURMENT_PIN 11
+#define AES_BLOCK_SIZE 16
+
+// Helper macro to calculate encrypted size
+#define ENCRYPTED_SIZE(n) (((n) + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE * AES_BLOCK_SIZE)
+
+// Declarations
+int    APConnect (const char ssid[], const char pass[]);
+void   callback (char *topic, byte *payload, unsigned int length);
+size_t publishMessage (const char *topic, const byte *msg, uint32_t size);
+void   encryptDataAES (const byte *data, int data_size, byte *out);
+void   decryptDataAES (const byte *data, int data_size, byte *out);
+void   printHex (byte *data, size_t len);
+
+// Globals
+const char exp_msg_pyld[MSG_PAYLOAD_LEN_NORMAL]
+    = R"({"device":{"id":123456789,"name":"nano33iot","firmware_version":"v0.2.34-beta"},"domain":{"org":"ip.santarem.pt","key":"1234-qwerty-12345","variant":"node","admin":false},"mqtt":{"topic":"device/sub/#","qos":1,"method":"tcp"},"coordinates":[{"x":123.45,"y":543.21,"z":789.11},{"x":123.45,"y":543.21,"z":789.11},{"x":123.45,"y":543.21,"z":789.11}],"health":{"battery_left":0.72,"voltage":3.2,"temperature":32.2},"timestamp":"Tue, 16 Dec 2025 04:43:34 GMT"})";
+
+char ssid[] = AP_SSID;
+char pass[] = AP_PASS;
+int  status = WL_IDLE_STATUS;
+
+WiFiClient   wifi_client;
+PubSubClient client (wifi_client);
+IPAddress    mqtt_server (MQTT_SRV_ADDR);
+
+unsigned long counter_millis = 0;
+
+// AES
+AES128 aes128;
+// key[16] contain 16 byte key(128 bit) for encryption
+byte key[AES_BLOCK_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+
+// Cypher static allocated blocks (updated sizes to accommodate padding)
+byte cypher_normal_msg[ENCRYPTED_SIZE (MSG_PAYLOAD_LEN_NORMAL)]     = { 0 };
+byte cypher_stress_msg[ENCRYPTED_SIZE (MSG_PAYLOAD_LEN_STRESS)]     = { 0 };
+byte cypher_stress_m_msg[ENCRYPTED_SIZE (MSG_PAYLOAD_LEN_STRESS_M)] = { 0 };
+byte cypher_stress_H_msg[ENCRYPTED_SIZE (MSG_PAYLOAD_LEN_STRESS_H)] = { 0 };
+
+void
+setup ()
+{
+
+    Serial.begin (9600);
+    while (!Serial) {
+        ; // wait for serial port to connect.
+    }
+
+    aes128.setKey (key, 16);
+
+    pinMode (LED_BUILTIN, OUTPUT);
+    pinMode (MEASURMENT_PIN, OUTPUT);
+
+    client.setServer (mqtt_server, MQTT_SRV_PORT);
+    client.setCallback (callback);
+
+    int result = APConnect (ssid, pass);
+    if (!result) {
+        Serial.println ("[INFO] Connected to the AP!");
+    } else {
+        Serial.println ("[ERRR] Unable to Connect to the AP! EXITING");
+        while (true)
+            ;
+    }
+
+    boolean client_connected = client.connect ("nano_33_iot");
+    if (!client_connected) {
+        Serial.println ("[ERRR] Unable to Connect to the AP! EXITING");
+        while (true)
+            ;
+    }
+
+    bool sub_result = client.subscribe (MQTT_SUB_TOPIC);
+    if (!sub_result) {
+        Serial.println ("[ERRR] Unable to subscribe to the toppic! EXITING");
+        while (true)
+            ;
+    }
+}
+
+bool ran = false;
+
+void
+loop ()
+{
+    if (!client.connected ()) {
+        boolean client_connected = client.connect ("nano_33_iot");
+        if (!client_connected) {
+            Serial.println ("Failed connecting Client...");
+            Serial.print ("Client state, rc=");
+            Serial.println (client.state ());
+
+            auto current_millis = millis ();
+            if (current_millis - counter_millis <= (3 * 1000)) {
+            } else {
+                counter_millis = current_millis;
+            }
+        } else {
+            Serial.println ("Connected to the server...");
+        }
+    }
+
+    if (client.connected () && !ran) {
+
+        crypto_feed_watchdog ();
+
+        digitalWrite (MEASURMENT_PIN, HIGH);
+        encryptDataAES ((const byte *) exp_msg_pyld, MSG_PAYLOAD_LEN_NORMAL, cypher_normal_msg);
+        digitalWrite (MEASURMENT_PIN, LOW);
+
+        // publishMessage (MQTT_PUB_TOPIC, (const byte *) cypher_normal_msg,
+        // MSG_PAYLOAD_LEN_NORMAL); delay (2 * 1000); publishMessage (MQTT_PUB_TOPIC, (const byte *)
+        // cypher_normal_msg, MSG_PAYLOAD_LEN_NORMAL);
+        client.publish (MQTT_PUB_TOPIC, "SUPER", false);
+        client.subscribe (MQTT_SUB_TOPIC);
+        ran = true;
+    }
+
+    client.loop ();
+}
+
+// --- Functions - START
+
+int
+APConnect (const char ssid[], const char pass[])
+{
+    String fv = WiFi.firmwareVersion ();
+    if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
+        Serial.println ("[WARN] UPGRADE THE FIRMWARE!");
+        return -1;
+    }
+
+    int retries    = 3;
+    int iterations = 0;
+
+    do {
+        if (iterations >= retries)
+            return -2;
+
+        status = WiFi.begin (ssid, pass);
+
+        delay (3 * 1000);
+        iterations += 1;
+    } while (status != WL_CONNECTED);
+
+    return 0;
+}
+
+void
+callback (char *topic, byte *payload, unsigned int length)
+{
+    Serial.print ("Payload: ");
+    for (uint32_t i = 0; i < length; ++i) {
+        Serial.print ((char) payload[i]);
+    }
+    Serial.print (" Topic: ");
+    Serial.print (topic);
+    Serial.print (" Length: ");
+    Serial.print (length);
+
+    Serial.println ();
+}
+
+size_t
+publishMessage (const char *topic, const byte *msg, uint32_t size)
+{
+    if (!client.beginPublish (topic, size, false)) {
+        Serial.println ("beginPublish failed");
+        return -1;
+    }
+
+    size_t written = 0;
+    written        = client.write (msg, size);
+
+    if (!client.endPublish ()) {
+        Serial.println ("endPublish failed");
+    }
+
+    return written;
+}
+
+void
+encryptDataAES (const byte *data, int data_size, byte *out)
+{
+    // Calculate number of blocks (round up)
+    int  block_count   = (data_size + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE;
+    int  padded_size   = block_count * AES_BLOCK_SIZE;
+    byte padding_value = padded_size - data_size;
+
+    byte cypher_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset    = i * AES_BLOCK_SIZE;
+        int remaining = data_size - offset;
+
+        if (remaining >= AES_BLOCK_SIZE) {
+            // Full block - encrypt directly
+            aes128.encryptBlock (cypher_buff, data + offset);
+        } else {
+            // Partial block - need padding
+            memcpy (cypher_buff, data + offset, remaining);
+            // PKCS#7 padding: fill with padding_value
+            memset (cypher_buff + remaining, padding_value, padding_value);
+            aes128.encryptBlock (cypher_buff, cypher_buff);
+        }
+
+        memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
+    }
+}
+
+void
+decryptDataAES (const byte *data, int data_size, byte *out)
+{
+    // data_size must be multiple of AES_BLOCK_SIZE
+    if (data_size % AES_BLOCK_SIZE != 0) {
+        Serial.println ("[ERRR] Invalid ciphertext size for decryption");
+        return;
+    }
+
+    int  block_count = data_size / AES_BLOCK_SIZE;
+    byte plain_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset = i * AES_BLOCK_SIZE;
+        aes128.decryptBlock (plain_buff, data + offset);
+        memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
+    }
+
+    // Remove PKCS#7 padding from last block
+    byte padding_value = out[data_size - 1];
+
+    // Validate and remove padding
+    if (padding_value > 0 && padding_value <= AES_BLOCK_SIZE) {
+        bool valid_padding = true;
+        for (int i = 0; i < padding_value; i++) {
+            if (out[data_size - 1 - i] != padding_value) {
+                valid_padding = false;
+                break;
+            }
+        }
+
+        if (valid_padding) {
+            // Zero out padding bytes
+            memset (out + data_size - padding_value, 0, padding_value);
+        }
+    }
+}
+
+void
+printHex (byte *data, size_t len)
+{
+    for (size_t i = 0; i < len; i++) {
+        if (data[i] < 0x10)
+            Serial.print ("0");
+        Serial.print (data[i], HEX);
+        Serial.print (" ");
+    }
+    Serial.println ();
+}
+
+// --- Functions - END
