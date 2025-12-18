@@ -15,7 +15,7 @@ AlignConsecutiveAssignments:
   PadOperators: true
 
 Standard: Latest
-ColumnLimit: 100
+ColumnLimit: 90
 UseTab: Never
 
 SpaceAfterCStyleCast: true

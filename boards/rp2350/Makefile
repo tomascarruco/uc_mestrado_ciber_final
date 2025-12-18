@@ -30,3 +30,5 @@ up_monitor: ## Compile, upload and begin serial comunication with the device
 
 clean:
 	pio run -t clean
+
+all: compile upload
