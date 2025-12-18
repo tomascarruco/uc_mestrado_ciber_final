@@ -1,0 +1,93 @@
+4d_systems_esp32s3_gen4_r8n16        ESP32S3  240MHz       16MB     320KB   4D Systems GEN4-ESP32 16MB (ESP32S3-R8N16)
+esp32cam                             ESP32    240MHz       4MB      320KB   AI Thinker ESP32-CAM
+alksesp32                            ESP32    240MHz       4MB      320KB   ALKS ESP32
+featheresp32                         ESP32    240MHz       4MB      320KB   Adafruit ESP32 Feather
+featheresp32-s2                      ESP32S2  240MHz       4MB      320KB   Adafruit ESP32-S2 Feather Development Board
+adafruit_feather_esp32_v2            ESP32    240MHz       8MB      320KB   Adafruit Feather ESP32 V2
+adafruit_feather_esp32s2             ESP32S2  240MHz       4MB      320KB   Adafruit Feather ESP32-S2
+adafruit_feather_esp32s2_reversetft  ESP32S2  240MHz       4MB      320KB   Adafruit Feather ESP32-S2 Reverse TFT
+adafruit_feather_esp32s2_tft         ESP32S2  240MHz       4MB      320KB   Adafruit Feather ESP32-S2 TFT
+adafruit_feather_esp32s3             ESP32S3  240MHz       4MB      320KB   Adafruit Feather ESP32-S3 2MB PSRAM
+adafruit_feather_esp32s3_nopsram     ESP32S3  240MHz       8MB      320KB   Adafruit Feather ESP32-S3 No PSRAM
+adafruit_feather_esp32s3_reversetft  ESP32S3  240MHz       4MB      320KB   Adafruit Feather ESP32-S3 Reverse TFT
+adafruit_feather_esp32s3_tft         ESP32S3  240MHz       4MB      320KB   Adafruit Feather ESP32-S3 TFT
+adafruit_funhouse_esp32s2            ESP32S2  240MHz       4MB      320KB   Adafruit FunHouse
+adafruit_itsybitsy_esp32             ESP32    240MHz       8MB      320KB   Adafruit ItsyBitsy ESP32
+adafruit_magtag29_esp32s2            ESP32S2  240MHz       4MB      320KB   Adafruit MagTag 2.9
+adafruit_matrixportal_esp32s3        ESP32S3  240MHz       8MB      320KB   Adafruit MatrixPortal ESP32-S3
+adafruit_metro_esp32s2               ESP32S2  240MHz       4MB      320KB   Adafruit Metro ESP32-S2
+adafruit_metro_esp32s3               ESP32S3  240MHz       16MB     320KB   Adafruit Metro ESP32-S3
+adafruit_qtpy_esp32                  ESP32    240MHz       8MB      320KB   Adafruit QT Py ESP32
+adafruit_qtpy_esp32c3                ESP32C3  160MHz       4MB      320KB   Adafruit QT Py ESP32-C3
+adafruit_qtpy_esp32s2                ESP32S2  240MHz       4MB      320KB   Adafruit QT Py ESP32-S2
+adafruit_qtpy_esp32s3_n4r2           ESP32S3  240MHz       4MB      320KB   Adafruit QT Py ESP32-S3 (4M Flash 2M PSRAM)
+adafruit_qtpy_esp32s3_nopsram        ESP32S3  240MHz       8MB      320KB   Adafruit QT Py ESP32-S3 No PSRAM
+adafruit_camera_esp32s3              ESP32S3  240MHz       4MB      320KB   Adafruit pyCamera S3
+esp32-c3-m1i-kit                     ESP32C3  160MHz       4MB      320KB   Ai-Thinker ESP-C3-M1-I-Kit
+airm2m_core_esp32c3                  ESP32C3  160MHz       4MB      320KB   AirM2M CORE ESP32C3
+arduino_nano_esp32                   ESP32S3  240MHz       16MB     320KB   Arduino Nano ESP32
+ioxesp32                             ESP32    240MHz       4MB      320KB   ArtronShop IOXESP32
+ioxesp32ps                           ESP32    240MHz       4MB      320KB   ArtronShop IOXESP32PS
+dfrobot_beetle_esp32c3               ESP32C3  160MHz       4MB      320KB   DFRobot Beetle ESP32-C3
+dfrobot_firebeetle2_esp32e           ESP32    240MHz       4MB      320KB   DFRobot Firebeetle 2 ESP32-E
+dfrobot_firebeetle2_esp32s3          ESP32S3  240MHz       4MB      320KB   DFRobot Firebeetle 2 ESP32-S3
+dfrobot_romeo_esp32s3                ESP32S3  240MHz       16MB     320KB   DFRobot Romeo ESP32-S3
+esp32doit-devkit-v1                  ESP32    240MHz       4MB      320KB   DOIT ESP32 DEVKIT V1
+esp32doit-espduino                   ESP32    240MHz       4MB      320KB   DOIT ESPduino32
+minimain_esp32s2                     ESP32S2  240MHz       4MB      320KB   Deparment of Alchemy MiniMain ESP32-S2
+esp32s3_powerfeather                 ESP32S3  240MHz       8MB      320KB   ESP32-S3 PowerFeather
+esp32s3camlcd                        ESP32S3  240MHz       8MB      320KB   ESP32S3 CAM LCD
+esp32vn-iot-uno                      ESP32    240MHz       4MB      320KB   ESP32vn IoT Uno
+esp320                               ESP32    240MHz       4MB      320KB   Electronic SweetPeas ESP320
+atmegazero_esp32s2                   ESP32S2  240MHz       16MB     320KB   EspinalLab ATMegaZero ESP32-S2
+esp32dev                             ESP32    240MHz       4MB      320KB   Espressif ESP32 Dev Module
+esp32-c3-devkitc-02                  ESP32C3  160MHz       4MB      320KB   Espressif ESP32-C3-DevKitC-02
+esp32-c3-devkitm-1                   ESP32C3  160MHz       4MB      320KB   Espressif ESP32-C3-DevKitM-1
+esp32-c6-devkitc-1                   ESP32C6  160MHz       8MB      320KB   Espressif ESP32-C6-DevKitC-1
+esp32-c6-devkitm-1                   ESP32C6  160MHz       4MB      320KB   Espressif ESP32-C6-DevKitM-1
+esp32-pico-devkitm-2                 ESP32    240MHz       8MB      320KB   Espressif ESP32-PICO-DevKitM-2
+esp32-s2-kaluga-1                    ESP32S2  240MHz       4MB      320KB   Espressif ESP32-S2-Kaluga-1 Kit
+esp32-s2-saola-1                     ESP32S2  240MHz       4MB      320KB   Espressif ESP32-S2-Saola-1
+esp32s3box                           ESP32S3  240MHz       16MB     320KB   Espressif ESP32-S3-Box
+esp32-s3-devkitc-1                   ESP32S3  240MHz       8MB      320KB   Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)
+esp32-s3-devkitm-1                   ESP32S3  240MHz       8MB      320KB   Espressif ESP32-S3-DevKitM-1
+esp32s3usbotg                        ESP32S3  240MHz       8MB      320KB   Espressif ESP32-S3-USB-OTG
+piranha_esp32                        ESP32    240MHz       4MB      320KB   Fishino Piranha ESP-32
+franzininho_wifi_esp32s2             ESP32S2  240MHz       4MB      320KB   Franzininho WiFi
+esp32-s2-franzininho                 ESP32S2  240MHz       4MB      320KB   Franzininho WiFi Board
+franzininho_wifi_msc_esp32s2         ESP32S2  240MHz       4MB      320KB   Franzininho WiFi MSC
+freenove_esp32_s3_wroom              ESP32S3  240MHz       8MB      320KB   Freenove ESP32-S3 WROOM N8R8 (8MB Flash / 8MB PSRAM)
+freenove_esp32_wrover                ESP32    240MHz       4MB      320KB   Freenove ESP32-Wrover
+m5stack-core-esp32                   ESP32    240MHz       4MB      320KB   M5Stack Core ESP32
+m5stack-core-esp32-16M               ESP32    240MHz       16MB     520KB   M5Stack Core ESP32 16M
+mhetesp32devkit                      ESP32    240MHz       4MB      320KB   MH ET LIVE ESP32DevKIT
+mhetesp32minikit                     ESP32    240MHz       4MB      320KB   MH ET LIVE ESP32MiniKit
+microduino-core-esp32                ESP32    240MHz       4MB      320KB   Microduino Core ESP32
+redpill_esp32s3                      ESP32S3  240MHz       8MB      320KB   Munich Labs RedPill ESP32-S3
+odroid_esp32                         ESP32    240MHz       16MB     320KB   ODROID-GO
+esp32-devkitlipo                     ESP32    240MHz       4MB      320KB   OLIMEX ESP32-DevKit-LiPo
+esp32-evb                            ESP32    240MHz       4MB      320KB   OLIMEX ESP32-EVB
+esp32-gateway                        ESP32    240MHz       4MB      320KB   OLIMEX ESP32-GATEWAY
+esp32-pro                            ESP32    240MHz       4MB      320KB   OLIMEX ESP32-PRO
+esp32-poe                            ESP32    240MHz       4MB      320KB   OLIMEX ESP32-PoE
+esp32-poe-iso                        ESP32    240MHz       4MB      320KB   OLIMEX ESP32-PoE-ISO
+rymcu-esp32-c3-devkitm-1             ESP32C3  160MHz       4MB      320KB   RYMCU ESP32-C3-DevKitM-1
+rymcu-esp32-devkitc                  ESP32    240MHz       4MB      320KB   RYMCU ESP32-DevKitC
+rymcu-esp32-s3-devkitc-1             ESP32S3  240MHz       8MB      320KB   RYMCU ESP32-S3-DevKitC-1-N8R2 (8 MB QD, 2 MB PSRAM)
+seeed_xiao_esp32c3                   ESP32C3  160MHz       4MB      320KB   Seeed Studio XIAO ESP32C3
+seeed_xiao_esp32c6                   ESP32C6  160MHz       4MB      320KB   Seeed Studio XIAO ESP32C6
+seeed_xiao_esp32s3                   ESP32S3  240MHz       8MB      320KB   Seeed Studio XIAO ESP32S3
+wesp32                               ESP32    240MHz       4MB      320KB   Silicognition wESP32
+sparkfun_esp32_iot_redboard          ESP32    240MHz       4MB      320KB   SparkFun ESP32 IoT RedBoard
+sparkfun_esp32micromod               ESP32    240MHz       4MB      320KB   SparkFun ESP32 MicroMod
+esp32thing                           ESP32    240MHz       4MB      320KB   SparkFun ESP32 Thing
+esp32thing_plus                      ESP32    240MHz       16MB     320KB   SparkFun ESP32 Thing Plus
+sparkfun_esp32s2_thing_plus_c        ESP32    240MHz       16MB     320KB   SparkFun ESP32 Thing Plus C
+sparkfun_esp32s2_thing_plus          ESP32S2  240MHz       4MB      320KB   SparkFun ESP32-S2 Thing Plus
+dpu_esp32                            ESP32    240MHz       8MB      320KB   TAMC DPU ESP32
+valtrack_v4_mfw_esp32_c3             ESP32C3  160MHz       4MB      320KB   Valetron Systems VALTRACK-V4MVF
+valtrack_v4_vts_esp32_c3             ESP32C3  160MHz       4MB      320KB   Valetron Systems VALTRACK-V4VTS
+weactstudio_esp32c3coreboard         ESP32C3  160MHz       384KB    400KB   WeAct Studio ESP32C3CoreBoard
+cezerio_dev_esp32c6                  ESP32C6  160MHz       4MB      320KB   cezerio dev ESP32C6
+cezerio_mini_dev_esp32c6             ESP32C6  160MHz       4MB      320KB   cezerio mini dev ESP32C6
+sensebox_mcu_esp32s2                 ESP32S2  240MHz       4MB      320KB   senseBox MCU-S2 ESP32-S2
