@@ -1,10 +1,4 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <WiFiNINA.h>
-
-#include "api/Common.h"
-#include "variant.h"
-
 #include <AES.h>
 #include <Crypto.h>
 #include <GCM.h>

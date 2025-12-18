@@ -1,10 +1,7 @@
-#include "api/Common.h"
-#include "variant.h"
-#include <AES.h>
 #include <Arduino.h>
+
+#include <AES.h>
 #include <Crypto.h>
-#include <SPI.h>
-#include <WiFiNINA.h>
 #include <cstddef>
 #include <cstdint>
 #include <string.h>
@@ -21,9 +18,6 @@
 // CPU frequency for cycle calculation (SAMD21 runs at 48MHz)
 #define CPU_FREQ_MHZ 48
 
-// AES256 uses 32-byte keys (256 bits) - the largest AES variant
-#define AES256_KEY_SIZE 32
-
 // Helper macro to calculate encrypted size
 #define ENCRYPTED_SIZE(n) (((n) + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE * AES_BLOCK_SIZE)
 
@@ -35,14 +29,10 @@ void             fillSequentialPattern (byte *buffer, int size);
 int              freeMemory ();
 extern "C" char *sbrk (int incr);
 
-// AES256 globals - using the AES256 class which performs 14 rounds
-AES256 aes256;
-
-// AES256 requires a 32-byte key (256 bits) - twice the size of AES128
-// This provides maximum security at the cost of additional computation
-byte key[AES256_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                              0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
-                              0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+// AES globals
+AES128 aes128;
+byte   key[AES_BLOCK_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                               0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
 
 // Maximum payload size we'll test (with padding)
 // With PAYLOAD_MAX = 4500, the actual max reached is 4325 bytes
@@ -64,16 +54,15 @@ setup ()
         ; // wait for serial port to connect
     }
 
-    // Initialize AES256 with 32-byte key
-    // AES256 will perform 14 rounds of encryption/decryption
-    aes256.setKey (key, AES256_KEY_SIZE);
+    // Initialize AES with key
+    aes128.setKey (key, 16);
 
     // Configure measurement pin
     pinMode (LED_BUILTIN, OUTPUT);
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES256 Encryption/Decryption Benchmark ===");
+    Serial.println ("=== AES128 Encryption/Decryption Benchmark ===");
     Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
     Serial.print ("Free SRAM at start: ");
     Serial.print (freeMemory ());
@@ -130,7 +119,7 @@ runBenchmarks ()
             // Start timing
             unsigned long start_time = micros ();
 
-            // Perform encryption using AES256 (14 rounds)
+            // Perform encryption
             encryptDataAES (plaintext, payload_size, ciphertext);
 
             // End timing
@@ -166,7 +155,7 @@ runBenchmarks ()
             // Start timing
             unsigned long start_time = micros ();
 
-            // Perform decryption using AES256 (14 rounds)
+            // Perform decryption
             decryptDataAES (ciphertext, encrypted_size, decrypted);
 
             // End timing
@@ -234,15 +223,14 @@ encryptDataAES (const byte *data, int data_size, byte *out)
         int remaining = data_size - offset;
 
         if (remaining >= AES_BLOCK_SIZE) {
-            // Full block - encrypt directly using AES256
-            // This will perform 14 rounds internally
-            aes256.encryptBlock (cypher_buff, data + offset);
+            // Full block - encrypt directly
+            aes128.encryptBlock (cypher_buff, data + offset);
         } else {
             // Partial block - need padding
             memcpy (cypher_buff, data + offset, remaining);
             // PKCS#7 padding: fill with padding_value
             memset (cypher_buff + remaining, padding_value, padding_value);
-            aes256.encryptBlock (cypher_buff, cypher_buff);
+            aes128.encryptBlock (cypher_buff, cypher_buff);
         }
 
         memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
@@ -262,8 +250,7 @@ decryptDataAES (const byte *data, int data_size, byte *out)
 
     for (int i = 0; i < block_count; ++i) {
         int offset = i * AES_BLOCK_SIZE;
-        // Decrypt using AES256 (14 rounds)
-        aes256.decryptBlock (plain_buff, data + offset);
+        aes128.decryptBlock (plain_buff, data + offset);
         memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
     }
 

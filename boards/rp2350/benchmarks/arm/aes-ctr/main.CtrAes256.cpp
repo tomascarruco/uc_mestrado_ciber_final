@@ -1,12 +1,5 @@
 #include <Arduino.h>
 
-#include "WiFi.h"
-#include "WiFiClient.h"
-#include "api/Common.h"
-#include "api/IPAddress.h"
-
-#include "avr/pgmspace.h"
-#include "variant.h"
 
 #include <AES.h>
 #include <CTR.h>

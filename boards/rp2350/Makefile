@@ -32,3 +32,7 @@ clean:
 	pio run -t clean
 
 all: compile upload
+
+all_riscv: 
+	pio run -e pico2w_riscv
+	pio run -e pico2w_riscv -t upload

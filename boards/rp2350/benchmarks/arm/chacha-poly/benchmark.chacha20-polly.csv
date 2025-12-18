@@ -1,23 +1,4 @@
-pio device monitor
---- Terminal on /dev/ttyACM0 | 9600 8-N-1
---- Available filters and text transformations: colorize, debug, default, direct, hexlify, log2file, nocontrol, printable, send_on_enter, time
---- More details at https://bit.ly/pio-monitor-filters
---- Quit: Ctrl+C | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H
-=== ChaCha20-Poly1305 Authenticated Encryption Benchmark ===
-SAMD21 Cortex-M0+ @ 48MHz
-Cipher: ChaCha20-Poly1305 AEAD (RFC 8439)
-Encryption: ChaCha20 stream cipher (20 rounds)
-Authentication: Poly1305 MAC (16-byte tag)
-Designer: Daniel J. Bernstein
-Free SRAM at start: 446431 b
-Static buffer allocation: 12991 b
-
-Note: Encryption includes MAC computation, Decryption includes verification
-
-Starting benchmark...
-
 operation iteration payload_size cpu_cycles cpu_time
-
 encrypt 1 500 17568 366 us
 encrypt 2 500 12960 270 us
 encrypt 3 500 13968 291 us
