@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <AES.h>
-#include <CTR.h>
 #include <Crypto.h>
 #include <cstddef>
 #include <cstdint>
@@ -18,12 +17,11 @@
 #define PAYLOAD_MAX 4500
 #define ITERATIONS_PER_SIZE 20
 
-// AES256 uses 32-byte keys (256 bits) - maximum AES security
-#define AES256_KEY_SIZE 32
+// AES192 uses 24-byte keys (192 bits)
+#define AES192_KEY_SIZE 24
 
-// CTR mode uses an IV (initialization vector) that contains the nonce
-#define IV_SIZE 16
-#define COUNTER_SIZE 8
+// Helper macro to calculate encrypted size
+#define ENCRYPTED_SIZE(n) (((n) + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE * AES_BLOCK_SIZE)
 
 // Power state definitions for RP2350
 enum PowerState {
@@ -35,8 +33,8 @@ enum PowerState {
 };
 
 // Function declarations
-void             encryptDataCTR (const byte *data, int data_size, byte *out);
-void             decryptDataCTR (const byte *data, int data_size, byte *out);
+void             encryptDataAES (const byte *data, int data_size, byte *out);
+void             decryptDataAES (const byte *data, int data_size, byte *out);
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 void             setCpuFrequency (uint32_t freq_mhz);
@@ -46,25 +44,22 @@ float            estimateCurrentDraw (uint32_t freq_mhz);
 int              freeMemory ();
 extern "C" char *sbrk (int incr);
 
-// CTR mode with AES256 - provides counter mode with 14 encryption rounds
-CTR<AES256> ctrMode;
+// AES192 globals - uses 24-byte key (192 bits), performs 12 rounds
+AES192 aes192;
 
-// AES256 requires a 32-byte key (256 bits)
-byte key[AES256_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                              0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
-                              0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+// AES192 requires a 24-byte key (192 bits)
+byte key[AES192_KEY_SIZE]
+    = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+        0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17 };
 
-// Initialization Vector for CTR mode
-byte iv[IV_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-                     0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
-
-// Maximum payload size - CTR mode doesn't need padding
+// Maximum payload size we'll test (with padding)
 #define MAX_PAYLOAD 4325
+#define MAX_ENCRYPTED ENCRYPTED_SIZE (MAX_PAYLOAD)
 
 // Global buffers to avoid stack overflow
 byte plaintext[MAX_PAYLOAD];
-byte ciphertext[MAX_PAYLOAD];
-byte decrypted[MAX_PAYLOAD];
+byte ciphertext[MAX_ENCRYPTED];
+byte decrypted[MAX_ENCRYPTED];
 
 // Current CPU frequency tracking
 uint32_t current_cpu_freq_mhz = 150;
@@ -82,15 +77,15 @@ setup ()
     
     delay (1000);
 
-    // Initialize CTR mode with AES256 key
-    ctrMode.setKey (key, AES256_KEY_SIZE);
+    // Initialize AES192 with 24-byte key
+    aes192.setKey (key, AES192_KEY_SIZE);
 
     // Configure measurement pin
     pinMode (LED_BUILTIN, OUTPUT);
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES256-CTR Encryption/Decryption Benchmark ===");
+    Serial.println ("=== AES192 Encryption/Decryption Benchmark ===");
     Serial.println ("=== Raspberry Pi Pico 2W (RP2350) ===");
     
     // Print chip information
@@ -105,15 +100,15 @@ setup ()
     Serial.print (getCurrentCpuFreqMhz ());
     Serial.println (" MHz");
     
-    Serial.println ("Mode: Counter (CTR) - Stream Cipher Mode");
-    Serial.println ("AES Variant: AES256 (14 rounds)");
+    Serial.print ("AES Variant: AES192 (12 rounds)");
+    Serial.println ();
     
     Serial.print ("Free SRAM at start: ");
     Serial.print (freeMemory ());
     Serial.println (" bytes");
     
     Serial.print ("Static buffer allocation: ");
-    Serial.print (MAX_PAYLOAD * 3);
+    Serial.print (MAX_PAYLOAD + MAX_ENCRYPTED + MAX_ENCRYPTED);
     Serial.println (" bytes");
     
     Serial.println ();
@@ -151,7 +146,7 @@ loop ()
 void
 runBenchmarks ()
 {
-    // Print CSV header with power metrics
+    // Print CSV header with additional power metrics
     Serial.println ("operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj");
     Serial.println ();
 
@@ -163,6 +158,9 @@ runBenchmarks ()
     int payload_size = PAYLOAD_START;
 
     while (payload_size <= PAYLOAD_MAX) {
+        // Calculate encrypted size for this payload
+        int encrypted_size = ENCRYPTED_SIZE (payload_size);
+
         // Fill plaintext with sequential pattern
         fillSequentialPattern (plaintext, payload_size);
 
@@ -175,18 +173,14 @@ runBenchmarks ()
 
             // === ENCRYPTION BENCHMARK ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for each encryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
-
                 // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
 
                 // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform encryption using AES256-CTR (14 rounds)
-                encryptDataCTR (plaintext, payload_size, ciphertext);
+                // Perform encryption using AES192
+                encryptDataAES (plaintext, payload_size, ciphertext);
 
                 // End timing
                 unsigned long end_time = micros ();
@@ -198,7 +192,7 @@ runBenchmarks ()
                 unsigned long elapsed_us = end_time - start_time;
                 unsigned long cpu_cycles = (unsigned long)elapsed_us * cpu_freq_mhz;
                 
-                // Energy calculation
+                // Energy calculation: Energy (mJ) = Voltage × Current (A) × Time (s) × 1000
                 float voltage = 3.3;
                 float current_a = estimated_current_ma / 1000.0;
                 float time_s = elapsed_us / 1000000.0;
@@ -227,18 +221,14 @@ runBenchmarks ()
 
             // === DECRYPTION BENCHMARK ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for decryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
-
                 // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
 
                 // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform decryption using AES256-CTR (14 rounds)
-                decryptDataCTR (ciphertext, payload_size, decrypted);
+                // Perform decryption using AES192
+                decryptDataAES (ciphertext, encrypted_size, decrypted);
 
                 // End timing
                 unsigned long end_time = micros ();
@@ -291,6 +281,8 @@ void
 setCpuFrequency (uint32_t freq_mhz)
 {
     // RP2350 can run from 50 MHz to 300 MHz
+    // Default is 150 MHz
+    
     if (freq_mhz < 50) freq_mhz = 50;
     if (freq_mhz > 300) freq_mhz = 300;
     
@@ -349,7 +341,7 @@ estimateCurrentDraw (uint32_t freq_mhz)
 void
 fillSequentialPattern (byte *buffer, int size)
 {
-    // Fill buffer with sequential byte pattern
+    // Fill buffer with sequential byte pattern: 0x00, 0x01, 0x02, ..., 0xFF, 0x00, ...
     for (int i = 0; i < size; i++) {
         buffer[i] = i % 256;
     }
@@ -364,15 +356,68 @@ freeMemory ()
 }
 
 void
-encryptDataCTR (const byte *data, int data_size, byte *out)
+encryptDataAES (const byte *data, int data_size, byte *out)
 {
-    // CTR mode encryption with AES256 (14 rounds)
-    ctrMode.encrypt (out, data, data_size);
+    // Calculate number of blocks (round up)
+    int  block_count   = (data_size + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE;
+    int  padded_size   = block_count * AES_BLOCK_SIZE;
+    byte padding_value = padded_size - data_size;
+
+    byte cypher_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset    = i * AES_BLOCK_SIZE;
+        int remaining = data_size - offset;
+
+        if (remaining >= AES_BLOCK_SIZE) {
+            // Full block - encrypt directly using AES192 (12 rounds)
+            aes192.encryptBlock (cypher_buff, data + offset);
+        } else {
+            // Partial block - need padding
+            memcpy (cypher_buff, data + offset, remaining);
+            // PKCS#7 padding: fill with padding_value
+            memset (cypher_buff + remaining, padding_value, padding_value);
+            aes192.encryptBlock (cypher_buff, cypher_buff);
+        }
+
+        memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
+    }
 }
 
 void
-decryptDataCTR (const byte *data, int data_size, byte *out)
+decryptDataAES (const byte *data, int data_size, byte *out)
 {
-    // CTR mode decryption with AES256 (14 rounds)
-    ctrMode.decrypt (out, data, data_size);
+    // data_size must be multiple of AES_BLOCK_SIZE
+    if (data_size % AES_BLOCK_SIZE != 0) {
+        return;
+    }
+
+    int  block_count = data_size / AES_BLOCK_SIZE;
+    byte plain_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset = i * AES_BLOCK_SIZE;
+        // Decrypt using AES192 (12 rounds)
+        aes192.decryptBlock (plain_buff, data + offset);
+        memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
+    }
+
+    // Remove PKCS#7 padding from last block
+    byte padding_value = out[data_size - 1];
+
+    // Validate and remove padding
+    if (padding_value > 0 && padding_value <= AES_BLOCK_SIZE) {
+        bool valid_padding = true;
+        for (int i = 0; i < padding_value; i++) {
+            if (out[data_size - 1 - i] != padding_value) {
+                valid_padding = false;
+                break;
+            }
+        }
+
+        if (valid_padding) {
+            // Zero out padding bytes
+            memset (out + data_size - padding_value, 0, padding_value);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <AES.h>
-#include <CTR.h>
 #include <Crypto.h>
+#include <GCM.h>
 #include <cstddef>
 #include <cstdint>
 #include <string.h>
@@ -10,7 +10,6 @@
 #include <pico/stdlib.h>
 
 #define MEASURMENT_PIN 11
-#define AES_BLOCK_SIZE 16
 
 // Benchmark configuration
 #define PAYLOAD_START 500
@@ -18,12 +17,14 @@
 #define PAYLOAD_MAX 4500
 #define ITERATIONS_PER_SIZE 20
 
-// AES256 uses 32-byte keys (256 bits) - maximum AES security
+// AES256-GCM uses a 256-bit (32-byte) key - maximum AES security
 #define AES256_KEY_SIZE 32
 
-// CTR mode uses an IV (initialization vector) that contains the nonce
-#define IV_SIZE 16
-#define COUNTER_SIZE 8
+// GCM typically uses a 96-bit (12-byte) nonce/IV
+#define GCM_IV_SIZE 12
+
+// GCM produces a 16-byte authentication tag
+#define GCM_TAG_SIZE 16
 
 // Power state definitions for RP2350
 enum PowerState {
@@ -35,8 +36,8 @@ enum PowerState {
 };
 
 // Function declarations
-void             encryptDataCTR (const byte *data, int data_size, byte *out);
-void             decryptDataCTR (const byte *data, int data_size, byte *out);
+void             encryptDataGCM (const byte *data, int data_size, byte *out, byte *tag);
+bool             decryptDataGCM (const byte *data, int data_size, const byte *tag, byte *out);
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 void             setCpuFrequency (uint32_t freq_mhz);
@@ -46,25 +47,26 @@ float            estimateCurrentDraw (uint32_t freq_mhz);
 int              freeMemory ();
 extern "C" char *sbrk (int incr);
 
-// CTR mode with AES256 - provides counter mode with 14 encryption rounds
-CTR<AES256> ctrMode;
+// AES256-GCM authenticated encryption
+// Uses AES with 256-bit key (14 rounds) for maximum security
+GCM<AES256> gcm;
 
-// AES256 requires a 32-byte key (256 bits)
+// AES256 requires a 256-bit (32-byte) key
 byte key[AES256_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
                               0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
                               0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
 
-// Initialization Vector for CTR mode
-byte iv[IV_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-                     0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+// Initialization Vector for GCM
+byte iv[GCM_IV_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B };
 
-// Maximum payload size - CTR mode doesn't need padding
+// Maximum payload size
 #define MAX_PAYLOAD 4325
 
-// Global buffers to avoid stack overflow
+// Global buffers
 byte plaintext[MAX_PAYLOAD];
 byte ciphertext[MAX_PAYLOAD];
 byte decrypted[MAX_PAYLOAD];
+byte authTag[GCM_TAG_SIZE];
 
 // Current CPU frequency tracking
 uint32_t current_cpu_freq_mhz = 150;
@@ -82,15 +84,13 @@ setup ()
     
     delay (1000);
 
-    // Initialize CTR mode with AES256 key
-    ctrMode.setKey (key, AES256_KEY_SIZE);
+    gcm.setKey (key, AES256_KEY_SIZE);
 
-    // Configure measurement pin
     pinMode (LED_BUILTIN, OUTPUT);
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES256-CTR Encryption/Decryption Benchmark ===");
+    Serial.println ("=== AES256-GCM Authenticated Encryption Benchmark ===");
     Serial.println ("=== Raspberry Pi Pico 2W (RP2350) ===");
     
     // Print chip information
@@ -105,15 +105,16 @@ setup ()
     Serial.print (getCurrentCpuFreqMhz ());
     Serial.println (" MHz");
     
-    Serial.println ("Mode: Counter (CTR) - Stream Cipher Mode");
-    Serial.println ("AES Variant: AES256 (14 rounds)");
+    Serial.println ("Mode: Galois/Counter Mode (GCM) AEAD");
+    Serial.println ("Encryption: AES256 in CTR mode (14 rounds)");
+    Serial.println ("Authentication: GMAC using Galois field arithmetic");
     
     Serial.print ("Free SRAM at start: ");
     Serial.print (freeMemory ());
     Serial.println (" bytes");
     
     Serial.print ("Static buffer allocation: ");
-    Serial.print (MAX_PAYLOAD * 3);
+    Serial.print ((MAX_PAYLOAD * 3) + GCM_TAG_SIZE);
     Serial.println (" bytes");
     
     Serial.println ();
@@ -122,10 +123,7 @@ setup ()
     Serial.println ("Starting benchmark...");
     Serial.println ();
 
-    // Small delay to ensure serial is ready
     delay (1000);
-
-    // Run the benchmarks
     runBenchmarks ();
 
     // Restore full speed
@@ -141,7 +139,6 @@ setup ()
 void
 loop ()
 {
-    // Benchmark runs once in setup, loop does nothing
     digitalWrite (LED_BUILTIN, HIGH);
     delay (500);
     digitalWrite (LED_BUILTIN, LOW);
@@ -159,11 +156,9 @@ runBenchmarks ()
     PowerState states[] = {FULL_POWER, REDUCED_83, REDUCED_67, REDUCED_50, LOW_POWER};
     int num_states = 5;
 
-    // Calculate how many payload sizes we'll test
     int payload_size = PAYLOAD_START;
 
     while (payload_size <= PAYLOAD_MAX) {
-        // Fill plaintext with sequential pattern
         fillSequentialPattern (plaintext, payload_size);
 
         // Test at each power state
@@ -173,28 +168,18 @@ runBenchmarks ()
             uint32_t cpu_freq_mhz = getCurrentCpuFreqMhz ();
             float estimated_current_ma = estimateCurrentDraw (cpu_freq_mhz);
 
-            // === ENCRYPTION BENCHMARK ===
+            // === ENCRYPTION ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for each encryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
+                gcm.setIV (iv, GCM_IV_SIZE);
 
-                // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
-
-                // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform encryption using AES256-CTR (14 rounds)
-                encryptDataCTR (plaintext, payload_size, ciphertext);
+                encryptDataGCM (plaintext, payload_size, ciphertext, authTag);
 
-                // End timing
                 unsigned long end_time = micros ();
-
-                // Toggle measurement pin LOW
                 digitalWrite (MEASURMENT_PIN, LOW);
 
-                // Calculate metrics
                 unsigned long elapsed_us = end_time - start_time;
                 unsigned long cpu_cycles = (unsigned long)elapsed_us * cpu_freq_mhz;
                 
@@ -204,7 +189,6 @@ runBenchmarks ()
                 float time_s = elapsed_us / 1000000.0;
                 float energy_mj = voltage * current_a * time_s * 1000.0;
 
-                // Output: operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj
                 Serial.print ("encrypt ");
                 Serial.print (iter);
                 Serial.print (" ");
@@ -221,32 +205,21 @@ runBenchmarks ()
                 Serial.print (energy_mj, 3);
                 Serial.println ();
 
-                // Small delay between operations
                 delayMicroseconds (100);
             }
 
-            // === DECRYPTION BENCHMARK ===
+            // === DECRYPTION ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for decryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
+                gcm.setIV (iv, GCM_IV_SIZE);
 
-                // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
-
-                // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform decryption using AES256-CTR (14 rounds)
-                decryptDataCTR (ciphertext, payload_size, decrypted);
+                bool verified = decryptDataGCM (ciphertext, payload_size, authTag, decrypted);
 
-                // End timing
                 unsigned long end_time = micros ();
-
-                // Toggle measurement pin LOW
                 digitalWrite (MEASURMENT_PIN, LOW);
 
-                // Calculate metrics
                 unsigned long elapsed_us = end_time - start_time;
                 unsigned long cpu_cycles = (unsigned long)elapsed_us * cpu_freq_mhz;
                 
@@ -256,7 +229,10 @@ runBenchmarks ()
                 float time_s = elapsed_us / 1000000.0;
                 float energy_mj = voltage * current_a * time_s * 1000.0;
 
-                // Output: operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj
+                if (!verified) {
+                    Serial.println ("ERROR: Authentication failed!");
+                }
+
                 Serial.print ("decrypt ");
                 Serial.print (iter);
                 Serial.print (" ");
@@ -273,14 +249,12 @@ runBenchmarks ()
                 Serial.print (energy_mj, 3);
                 Serial.println ();
 
-                // Small delay between operations
                 delayMicroseconds (100);
             }
         }
 
-        // Move to next payload size
         payload_size += PAYLOAD_INCREMENT;
-
+        
         // Brief pause between payload sizes
         Serial.println ();
         delay (100);
@@ -290,16 +264,14 @@ runBenchmarks ()
 void
 setCpuFrequency (uint32_t freq_mhz)
 {
-    // RP2350 can run from 50 MHz to 300 MHz
     if (freq_mhz < 50) freq_mhz = 50;
     if (freq_mhz > 300) freq_mhz = 300;
     
-    // Set system clock
     bool success = set_sys_clock_khz (freq_mhz * 1000, true);
     
     if (success) {
         current_cpu_freq_mhz = freq_mhz;
-        sleep_ms (10);  // Stabilization time
+        sleep_ms (10);
     } else {
         Serial.println ("ERROR: Failed to set clock frequency!");
     }
@@ -340,16 +312,12 @@ setPowerState (PowerState state)
 float
 estimateCurrentDraw (uint32_t freq_mhz)
 {
-    // Rough estimation for RP2350 ARM Cortex-M33
-    // At 150 MHz: ~30 mA (active processing)
-    // Scales roughly linearly with frequency
     return 30.0 * (freq_mhz / 150.0);
 }
 
 void
 fillSequentialPattern (byte *buffer, int size)
 {
-    // Fill buffer with sequential byte pattern
     for (int i = 0; i < size; i++) {
         buffer[i] = i % 256;
     }
@@ -358,21 +326,22 @@ fillSequentialPattern (byte *buffer, int size)
 int
 freeMemory ()
 {
-    // Calculate free memory between heap and stack
     char stack_dummy = 0;
     return &stack_dummy - sbrk (0);
 }
 
 void
-encryptDataCTR (const byte *data, int data_size, byte *out)
+encryptDataGCM (const byte *data, int data_size, byte *out, byte *tag)
 {
-    // CTR mode encryption with AES256 (14 rounds)
-    ctrMode.encrypt (out, data, data_size);
+    gcm.clear ();
+    gcm.encrypt (out, data, data_size);
+    gcm.computeTag (tag, GCM_TAG_SIZE);
 }
 
-void
-decryptDataCTR (const byte *data, int data_size, byte *out)
+bool
+decryptDataGCM (const byte *data, int data_size, const byte *tag, byte *out)
 {
-    // CTR mode decryption with AES256 (14 rounds)
-    ctrMode.decrypt (out, data, data_size);
+    gcm.clear ();
+    gcm.decrypt (out, data, data_size);
+    return gcm.checkTag (tag, GCM_TAG_SIZE);
 }

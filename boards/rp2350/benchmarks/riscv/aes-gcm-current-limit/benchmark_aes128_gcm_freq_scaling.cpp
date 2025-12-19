@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <AES.h>
-#include <CTR.h>
 #include <Crypto.h>
+#include <GCM.h>
 #include <cstddef>
 #include <cstdint>
 #include <string.h>
@@ -10,7 +10,6 @@
 #include <pico/stdlib.h>
 
 #define MEASURMENT_PIN 11
-#define AES_BLOCK_SIZE 16
 
 // Benchmark configuration
 #define PAYLOAD_START 500
@@ -18,12 +17,14 @@
 #define PAYLOAD_MAX 4500
 #define ITERATIONS_PER_SIZE 20
 
-// AES256 uses 32-byte keys (256 bits) - maximum AES security
-#define AES256_KEY_SIZE 32
+// AES128-GCM uses a 128-bit (16-byte) key
+#define AES128_KEY_SIZE 16
 
-// CTR mode uses an IV (initialization vector) that contains the nonce
-#define IV_SIZE 16
-#define COUNTER_SIZE 8
+// GCM typically uses a 96-bit (12-byte) nonce/IV
+#define GCM_IV_SIZE 12
+
+// GCM produces a 16-byte authentication tag (128 bits)
+#define GCM_TAG_SIZE 16
 
 // Power state definitions for RP2350
 enum PowerState {
@@ -35,8 +36,8 @@ enum PowerState {
 };
 
 // Function declarations
-void             encryptDataCTR (const byte *data, int data_size, byte *out);
-void             decryptDataCTR (const byte *data, int data_size, byte *out);
+void             encryptDataGCM (const byte *data, int data_size, byte *out, byte *tag);
+bool             decryptDataGCM (const byte *data, int data_size, const byte *tag, byte *out);
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 void             setCpuFrequency (uint32_t freq_mhz);
@@ -46,25 +47,25 @@ float            estimateCurrentDraw (uint32_t freq_mhz);
 int              freeMemory ();
 extern "C" char *sbrk (int incr);
 
-// CTR mode with AES256 - provides counter mode with 14 encryption rounds
-CTR<AES256> ctrMode;
+// AES128-GCM authenticated encryption
+// Combines AES128 in CTR mode with GMAC authentication
+GCM<AES128> gcm;
 
-// AES256 requires a 32-byte key (256 bits)
-byte key[AES256_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                              0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
-                              0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+// AES128 requires a 128-bit (16-byte) key
+byte key[AES128_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                              0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
 
-// Initialization Vector for CTR mode
-byte iv[IV_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-                     0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
+// Initialization Vector (nonce) for GCM
+byte iv[GCM_IV_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B };
 
-// Maximum payload size - CTR mode doesn't need padding
+// Maximum payload size
 #define MAX_PAYLOAD 4325
 
 // Global buffers to avoid stack overflow
 byte plaintext[MAX_PAYLOAD];
 byte ciphertext[MAX_PAYLOAD];
 byte decrypted[MAX_PAYLOAD];
+byte authTag[GCM_TAG_SIZE];
 
 // Current CPU frequency tracking
 uint32_t current_cpu_freq_mhz = 150;
@@ -82,15 +83,15 @@ setup ()
     
     delay (1000);
 
-    // Initialize CTR mode with AES256 key
-    ctrMode.setKey (key, AES256_KEY_SIZE);
+    // Initialize GCM with AES128 key
+    gcm.setKey (key, AES128_KEY_SIZE);
 
     // Configure measurement pin
     pinMode (LED_BUILTIN, OUTPUT);
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES256-CTR Encryption/Decryption Benchmark ===");
+    Serial.println ("=== AES128-GCM Authenticated Encryption Benchmark ===");
     Serial.println ("=== Raspberry Pi Pico 2W (RP2350) ===");
     
     // Print chip information
@@ -105,17 +106,20 @@ setup ()
     Serial.print (getCurrentCpuFreqMhz ());
     Serial.println (" MHz");
     
-    Serial.println ("Mode: Counter (CTR) - Stream Cipher Mode");
-    Serial.println ("AES Variant: AES256 (14 rounds)");
+    Serial.println ("Mode: Galois/Counter Mode (GCM) AEAD");
+    Serial.println ("Encryption: AES128 in CTR mode (10 rounds)");
+    Serial.println ("Authentication: GMAC using Galois field arithmetic");
     
     Serial.print ("Free SRAM at start: ");
     Serial.print (freeMemory ());
     Serial.println (" bytes");
     
     Serial.print ("Static buffer allocation: ");
-    Serial.print (MAX_PAYLOAD * 3);
+    Serial.print ((MAX_PAYLOAD * 3) + GCM_TAG_SIZE);
     Serial.println (" bytes");
     
+    Serial.println ();
+    Serial.println ("Note: Encryption includes GMAC computation, Decryption includes verification");
     Serial.println ();
     Serial.println ("Testing at multiple CPU frequencies...");
     Serial.println ();
@@ -173,11 +177,10 @@ runBenchmarks ()
             uint32_t cpu_freq_mhz = getCurrentCpuFreqMhz ();
             float estimated_current_ma = estimateCurrentDraw (cpu_freq_mhz);
 
-            // === ENCRYPTION BENCHMARK ===
+            // === AUTHENTICATED ENCRYPTION BENCHMARK ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for each encryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
+                // Set the IV (nonce) for this encryption operation
+                gcm.setIV (iv, GCM_IV_SIZE);
 
                 // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
@@ -185,8 +188,8 @@ runBenchmarks ()
                 // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform encryption using AES256-CTR (14 rounds)
-                encryptDataCTR (plaintext, payload_size, ciphertext);
+                // Perform authenticated encryption with GCM
+                encryptDataGCM (plaintext, payload_size, ciphertext, authTag);
 
                 // End timing
                 unsigned long end_time = micros ();
@@ -225,11 +228,10 @@ runBenchmarks ()
                 delayMicroseconds (100);
             }
 
-            // === DECRYPTION BENCHMARK ===
+            // === AUTHENTICATED DECRYPTION BENCHMARK ===
             for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-                // Reset IV for decryption
-                ctrMode.setIV (iv, IV_SIZE);
-                ctrMode.setCounterSize (COUNTER_SIZE);
+                // Set the same IV used for encryption
+                gcm.setIV (iv, GCM_IV_SIZE);
 
                 // Toggle measurement pin HIGH
                 digitalWrite (MEASURMENT_PIN, HIGH);
@@ -237,8 +239,8 @@ runBenchmarks ()
                 // Start timing
                 unsigned long start_time = micros ();
 
-                // Perform decryption using AES256-CTR (14 rounds)
-                decryptDataCTR (ciphertext, payload_size, decrypted);
+                // Perform authenticated decryption with GCM
+                bool verified = decryptDataGCM (ciphertext, payload_size, authTag, decrypted);
 
                 // End timing
                 unsigned long end_time = micros ();
@@ -255,6 +257,11 @@ runBenchmarks ()
                 float current_a = estimated_current_ma / 1000.0;
                 float time_s = elapsed_us / 1000000.0;
                 float energy_mj = voltage * current_a * time_s * 1000.0;
+
+                // Verification should always succeed
+                if (!verified) {
+                    Serial.println ("ERROR: GCM authentication verification failed!");
+                }
 
                 // Output: operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj
                 Serial.print ("decrypt ");
@@ -364,15 +371,35 @@ freeMemory ()
 }
 
 void
-encryptDataCTR (const byte *data, int data_size, byte *out)
+encryptDataGCM (const byte *data, int data_size, byte *out, byte *tag)
 {
-    // CTR mode encryption with AES256 (14 rounds)
-    ctrMode.encrypt (out, data, data_size);
+    // Clear the GCM state to prepare for encryption
+    gcm.clear ();
+
+    // Encrypt the data using AES128 in CTR mode
+    // GCM internally:
+    // 1. Encrypts counter blocks with AES128 to generate keystream
+    // 2. XORs keystream with plaintext to produce ciphertext
+    // 3. Simultaneously prepares data for GMAC authentication
+    gcm.encrypt (out, data, data_size);
+
+    // Compute and retrieve the GMAC authentication tag
+    // GMAC uses Galois field (GF(2^128)) multiplication
+    gcm.computeTag (tag, GCM_TAG_SIZE);
 }
 
-void
-decryptDataCTR (const byte *data, int data_size, byte *out)
+bool
+decryptDataGCM (const byte *data, int data_size, const byte *tag, byte *out)
 {
-    // CTR mode decryption with AES256 (14 rounds)
-    ctrMode.decrypt (out, data, data_size);
+    // Clear the GCM state to prepare for decryption
+    gcm.clear ();
+
+    // Decrypt the data
+    gcm.decrypt (out, data, data_size);
+
+    // Verify the authentication tag
+    // This recomputes the GMAC tag and compares using constant-time comparison
+    bool verified = gcm.checkTag (tag, GCM_TAG_SIZE);
+
+    return verified;
 }
