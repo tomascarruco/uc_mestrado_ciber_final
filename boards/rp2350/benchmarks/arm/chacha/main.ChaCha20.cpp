@@ -31,7 +31,7 @@ void             decryptDataChaCha (const byte *data, int data_size, byte *out);
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 int              freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // ChaCha cipher object - performs 20 rounds of mixing for strong security
 // ChaCha was designed by Daniel J. Bernstein as an alternative to AES
@@ -76,18 +76,18 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== ChaCha20 Encryption/Decryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Cipher: ChaCha20 - Stream Cipher (20 rounds)");
-    Serial.println ("Designer: Daniel J. Bernstein");
-    Serial.print ("Free SRAM at start: ");
+    Serial.println (=== ChaCha20 Encryption/Decryption Benchmark ===);
+    Serial.println (SAMD21 Cortex-M0+ @ 48MHz);
+    Serial.println (Cipher: ChaCha20 - Stream Cipher (20 rounds));
+    Serial.println (Designer: Daniel J. Bernstein);
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
+    Serial.println ( b);
+    Serial.print (Static buffer allocation: );
     Serial.print (MAX_PAYLOAD * 3);
-    Serial.println (" b");
+    Serial.println ( b);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     // Small delay to ensure serial is ready
@@ -97,7 +97,7 @@ setup ()
     runBenchmarks ();
 
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    Serial.println (=== Benchmark Complete ===);
 }
 
 void
@@ -114,7 +114,7 @@ void
 runBenchmarks ()
 {
     // Print CSV header
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
+    Serial.println (operation iteration payload_size cpu_cycles cpu_time);
     Serial.println ();
 
     // Calculate how many payload sizes we'll test
@@ -153,15 +153,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("encrypt ");
+            Serial.print (encrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -195,15 +195,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("decrypt ");
+            Serial.print (decrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -242,7 +242,7 @@ encryptDataChaCha (const byte *data, int data_size, byte *out)
 {
     // ChaCha encryption is straightforward - just one call
     // The ChaCha class handles all the round operations internally
-    // Each round consists of four "quarter round" operations that mix the state
+    // Each round consists of four quarter round operations that mix the state
     // After 20 rounds, the final state is XORed with the original to produce keystream
     // This keystream is then XORed with the plaintext to produce ciphertext
     chacha.encrypt (out, data, data_size);

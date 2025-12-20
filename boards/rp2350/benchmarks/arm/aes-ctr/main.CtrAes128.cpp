@@ -33,7 +33,7 @@ void             decryptDataCTR (const byte *data, int data_size, byte *out);
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 int              freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // CTR mode with AES128 - wraps AES128 to provide counter mode operation
 CTR<AES128> ctrMode;
@@ -73,17 +73,17 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES128-CTR Encryption/Decryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Mode: Counter (CTR) - Stream Cipher Mode");
-    Serial.print ("Free SRAM at start: ");
+    Serial.println (=== AES128-CTR Encryption/Decryption Benchmark ===);
+    Serial.println (SAMD21 Cortex-M0+ @ 48MHz);
+    Serial.println (Mode: Counter (CTR) - Stream Cipher Mode);
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
+    Serial.println ( b);
+    Serial.print (Static buffer allocation: );
     Serial.print (MAX_PAYLOAD * 3); // Three buffers of equal size
-    Serial.println (" b");
+    Serial.println ( b);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     // Small delay to ensure serial is ready
@@ -93,7 +93,7 @@ setup ()
     runBenchmarks ();
 
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    Serial.println (=== Benchmark Complete ===);
 }
 
 void
@@ -110,7 +110,7 @@ void
 runBenchmarks ()
 {
     // Print CSV header
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
+    Serial.println (operation iteration payload_size cpu_cycles cpu_time);
     Serial.println ();
 
     // Calculate how many payload sizes we'll test
@@ -148,15 +148,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("encrypt ");
+            Serial.print (encrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -189,15 +189,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("decrypt ");
+            Serial.print (decrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);

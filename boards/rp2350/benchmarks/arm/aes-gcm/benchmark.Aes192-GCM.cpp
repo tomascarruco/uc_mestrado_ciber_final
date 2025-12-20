@@ -33,7 +33,7 @@ bool             decryptDataGCM (const byte *data, int data_size, const byte *ta
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 int              freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // AES192-GCM authenticated encryption
 // Uses AES with 192-bit key (12 rounds)
@@ -70,26 +70,26 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES192-GCM Authenticated Encryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Mode: Galois/Counter Mode (GCM) AEAD");
-    Serial.println ("Encryption: AES192 in CTR mode (12 rounds)");
-    Serial.println ("Authentication: GMAC using Galois field arithmetic");
-    Serial.print ("Free SRAM at start: ");
+    Serial.println (=== AES192-GCM Authenticated Encryption Benchmark ===);
+    Serial.println (SAMD21 Cortex-M0+ @ 48MHz);
+    Serial.println (Mode: Galois/Counter Mode (GCM) AEAD);
+    Serial.println (Encryption: AES192 in CTR mode (12 rounds));
+    Serial.println (Authentication: GMAC using Galois field arithmetic);
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
+    Serial.println ( b);
+    Serial.print (Static buffer allocation: );
     Serial.print ((MAX_PAYLOAD * 3) + GCM_TAG_SIZE);
-    Serial.println (" b");
+    Serial.println ( b);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     delay (1000);
     runBenchmarks ();
 
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    Serial.println (=== Benchmark Complete ===);
 }
 
 void
@@ -104,7 +104,7 @@ loop ()
 void
 runBenchmarks ()
 {
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
+    Serial.println (operation iteration payload_size cpu_cycles cpu_time);
     Serial.println ();
 
     int payload_size = PAYLOAD_START;
@@ -127,15 +127,15 @@ runBenchmarks ()
             unsigned long elapsed_us = end_time - start_time;
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
-            Serial.print ("encrypt ");
+            Serial.print (encrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             delayMicroseconds (100);
         }
@@ -156,18 +156,18 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             if (!verified) {
-                Serial.println ("ERROR: Authentication failed!");
+                Serial.println (ERROR: Authentication failed!);
             }
 
-            Serial.print ("decrypt ");
+            Serial.print (decrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             delayMicroseconds (100);
         }

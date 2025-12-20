@@ -35,7 +35,7 @@ bool             decryptDataGCM (const byte *data, int data_size, const byte *ta
 void             runBenchmarks ();
 void             fillSequentialPattern (byte *buffer, int size);
 int              freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // AES128-GCM authenticated encryption
 // Combines AES128 in CTR mode with GMAC authentication
@@ -76,21 +76,21 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES128-GCM Authenticated Encryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Mode: Galois/Counter Mode (GCM) AEAD");
-    Serial.println ("Encryption: AES128 in CTR mode (10 rounds)");
-    Serial.println ("Authentication: GMAC using Galois field arithmetic");
-    Serial.print ("Free SRAM at start: ");
+    Serial.println (=== AES128-GCM Authenticated Encryption Benchmark ===);
+    Serial.println (SAMD21 Cortex-M0+ @ 48MHz);
+    Serial.println (Mode: Galois/Counter Mode (GCM) AEAD);
+    Serial.println (Encryption: AES128 in CTR mode (10 rounds));
+    Serial.println (Authentication: GMAC using Galois field arithmetic);
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
+    Serial.println ( b);
+    Serial.print (Static buffer allocation: );
     Serial.print ((MAX_PAYLOAD * 3) + GCM_TAG_SIZE);
-    Serial.println (" b");
+    Serial.println ( b);
     Serial.println ();
-    Serial.println ("Note: Encryption includes GMAC computation, Decryption includes verification");
+    Serial.println (Note: Encryption includes GMAC computation, Decryption includes verification);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     // Small delay to ensure serial is ready
@@ -100,7 +100,7 @@ setup ()
     runBenchmarks ();
 
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    Serial.println (=== Benchmark Complete ===);
 }
 
 void
@@ -117,7 +117,7 @@ void
 runBenchmarks ()
 {
     // Print CSV header
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
+    Serial.println (operation iteration payload_size cpu_cycles cpu_time);
     Serial.println ();
 
     // Calculate how many payload sizes we'll test
@@ -158,15 +158,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("encrypt ");
+            Serial.print (encrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -205,19 +205,19 @@ runBenchmarks ()
             // Verification should always succeed in our benchmark
             // In real applications, failed verification indicates tampering or corruption
             if (!verified) {
-                Serial.println ("ERROR: GCM authentication verification failed!");
+                Serial.println (ERROR: GCM authentication verification failed!);
             }
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("decrypt ");
+            Serial.print (decrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -254,7 +254,7 @@ encryptDataGCM (const byte *data, int data_size, byte *out, byte *tag)
     // Clear the GCM state to prepare for encryption
     gcm.clear ();
 
-    // Optional: Add "additional authenticated data" (AAD)
+    // Optional: Add additional authenticated data (AAD)
     // AAD is data that should be authenticated but NOT encrypted
     // Examples: packet headers, protocol metadata, sequence numbers
     // For this benchmark we're not using AAD, but here's the syntax:

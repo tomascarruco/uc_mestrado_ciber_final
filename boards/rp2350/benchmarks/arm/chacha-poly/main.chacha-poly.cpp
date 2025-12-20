@@ -33,7 +33,7 @@ bool decryptDataChaChaPoly (const byte *data, int data_size, const byte *tag, by
 void runBenchmarks ();
 void fillSequentialPattern (byte *buffer, int size);
 int  freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // ChaCha20-Poly1305 AEAD cipher
 // Combines ChaCha20 stream cipher with Poly1305 MAC for authenticated encryption
@@ -76,22 +76,22 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== ChaCha20-Poly1305 Authenticated Encryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Cipher: ChaCha20-Poly1305 AEAD (RFC 8439)");
-    Serial.println ("Encryption: ChaCha20 stream cipher (20 rounds)");
-    Serial.println ("Authentication: Poly1305 MAC (16-byte tag)");
-    Serial.println ("Designer: Daniel J. Bernstein");
-    Serial.print ("Free SRAM at start: ");
+    Serial.println (=== ChaCha20-Poly1305 Authenticated Encryption Benchmark ===);
+    Serial.println (SAMD21 Cortex-M0+ @ 48MHz);
+    Serial.println (Cipher: ChaCha20-Poly1305 AEAD (RFC 8439));
+    Serial.println (Encryption: ChaCha20 stream cipher (20 rounds));
+    Serial.println (Authentication: Poly1305 MAC (16-byte tag));
+    Serial.println (Designer: Daniel J. Bernstein);
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
+    Serial.println ( b);
+    Serial.print (Static buffer allocation: );
     Serial.print ((MAX_PAYLOAD * 3) + POLY1305_TAG_SIZE);
-    Serial.println (" b");
+    Serial.println ( b);
     Serial.println ();
-    Serial.println ("Note: Encryption includes MAC computation, Decryption includes verification");
+    Serial.println (Note: Encryption includes MAC computation, Decryption includes verification);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     // Small delay to ensure serial is ready
@@ -101,7 +101,7 @@ setup ()
     runBenchmarks ();
 
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    Serial.println (=== Benchmark Complete ===);
 }
 
 void
@@ -118,7 +118,7 @@ void
 runBenchmarks ()
 {
     // Print CSV header
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
+    Serial.println (operation iteration payload_size cpu_cycles cpu_time);
     Serial.println ();
 
     // Calculate how many payload sizes we'll test
@@ -160,15 +160,15 @@ runBenchmarks ()
             unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("encrypt ");
+            Serial.print (encrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -209,19 +209,19 @@ runBenchmarks ()
             // In a real application, you would check 'verified' and reject the message if false
             // For benchmarking, we know it should always be true since we just encrypted it
             if (!verified) {
-                Serial.println ("ERROR: Authentication verification failed!");
+                Serial.println (ERROR: Authentication verification failed!);
             }
 
             // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("decrypt ");
+            Serial.print (decrypt );
             Serial.print (iter);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (payload_size);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (cpu_cycles);
-            Serial.print (" ");
+            Serial.print ( );
             Serial.print (elapsed_us);
-            Serial.println (" us");
+            Serial.println ( us);
 
             // Small delay between operations
             delayMicroseconds (100);
@@ -258,7 +258,7 @@ encryptDataChaChaPoly (const byte *data, int data_size, byte *out, byte *tag)
     // Clear the cipher state to prepare for encryption
     chachaPoly.clear ();
 
-    // Optional: You can add "additional authenticated data" (AAD) here
+    // Optional: You can add additional authenticated data (AAD) here
     // AAD is data that should be authenticated but NOT encrypted
     // For example, packet headers, protocol version numbers, etc.
     // For this benchmark, we're not using AAD, but here's how you would:

@@ -2,23 +2,23 @@
 #include <SPI.h>
 #include <WiFiNINA.h>
 
-#include "WiFi.h"
-#include "WiFiClient.h"
-#include "api/Common.h"
-#include "api/IPAddress.h"
-
-#include "avr/pgmspace.h"
 #include "variant.h"
 
+#include <AES.h>
+#include <CTR.h>
 #include <ChaCha.h>
 #include <ChaChaPoly.h>
 #include <Crypto.h>
-#include <Poly1305.h>
+#include <GCM.h>
 #include <cstddef>
 #include <cstdint>
 #include <string.h>
 
 #define MEASURMENT_PIN 11
+#define AES_BLOCK_SIZE 16
+#define TAG_SIZE 16
+#define IV_SIZE_12 12
+#define IV_SIZE_16 16
 
 // Benchmark configuration
 #define PAYLOAD_START 500
@@ -29,47 +29,54 @@
 // CPU frequency for cycle calculation (SAMD21 runs at 48MHz)
 #define CPU_FREQ_MHZ 48
 
-// ChaCha20-Poly1305 uses a 256-bit (32-byte) key
-#define CHACHA_KEY_SIZE 32
+// Helper macro to calculate encrypted size for block modes
+#define ENCRYPTED_SIZE(n) (((n) + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE * AES_BLOCK_SIZE)
 
-// ChaCha20-Poly1305 uses a 96-bit (12-byte) nonce - this is the standard size
-#define CHACHA_NONCE_SIZE 12
-
-// Poly1305 produces a 16-byte authentication tag
-#define POLY1305_TAG_SIZE 16
+// Maximum payload size
+#define MAX_PAYLOAD 4325
+#define MAX_ENCRYPTED ENCRYPTED_SIZE (MAX_PAYLOAD)
+#define MAX_AEAD_CIPHERTEXT (MAX_PAYLOAD + TAG_SIZE)
 
 // Function declarations
-void encryptDataChaChaPoly (const byte *data, int data_size, byte *out, byte *tag);
-bool decryptDataChaChaPoly (const byte *data, int data_size, const byte *tag, byte *out);
-void runBenchmarks ();
-void fillSequentialPattern (byte *buffer, int size);
-int  freeMemory ();
+void             fillSequentialPattern (byte *buffer, int size);
+int              freeMemory ();
 extern "C" char *sbrk (int incr);
 
-// ChaCha20-Poly1305 AEAD cipher
-// Combines ChaCha20 stream cipher with Poly1305 MAC for authenticated encryption
-// This provides both confidentiality (encryption) and integrity/authenticity (MAC)
-ChaChaPoly chachaPoly;
+// Benchmark function declarations
+void runAES128Benchmark ();
+void runAES192Benchmark ();
+void runAES256Benchmark ();
+void runAESGCM128Benchmark ();
+void runAESGCM192Benchmark ();
+void runAESGCM256Benchmark ();
+void runAESCTR128Benchmark ();
+void runAESCTR192Benchmark ();
+void runAESCTR256Benchmark ();
+void runChaCha20Benchmark ();
+void runChaCha20PolyBenchmark ();
 
-// ChaCha20-Poly1305 uses a 256-bit key
-byte key[CHACHA_KEY_SIZE] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
-                              0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
-                              0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+// Keys for different key sizes
+byte key128[16] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                    0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
 
-// Nonce for ChaCha20-Poly1305
-// Must be unique for each message with the same key
-// 96 bits (12 bytes) is the standard nonce size for ChaCha20-Poly1305
-byte nonce[CHACHA_NONCE_SIZE]
-    = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B };
+byte key192[24] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+                    0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17 };
 
-// Maximum payload size - no padding needed for stream cipher
-#define MAX_PAYLOAD 4325
+byte key256[32] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A,
+                    0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15,
+                    0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F };
+
+// Fixed IVs for modes that require them
+byte iv_12[IV_SIZE_12] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B };
+
+byte iv_16[IV_SIZE_16] = { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                           0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F };
 
 // Global buffers to avoid stack overflow
 byte plaintext[MAX_PAYLOAD];
-byte ciphertext[MAX_PAYLOAD]; // Same size as plaintext (no padding in stream cipher)
-byte decrypted[MAX_PAYLOAD];
-byte authTag[POLY1305_TAG_SIZE]; // 16-byte authentication tag
+byte ciphertext[MAX_AEAD_CIPHERTEXT];
+byte decrypted[MAX_AEAD_CIPHERTEXT];
+byte tag[TAG_SIZE];
 
 void
 setup ()
@@ -79,40 +86,31 @@ setup ()
         ; // wait for serial port to connect
     }
 
-    // Initialize ChaCha20-Poly1305 with key
-    chachaPoly.setKey (key, CHACHA_KEY_SIZE);
-
     // Configure measurement pin
     pinMode (LED_BUILTIN, OUTPUT);
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== ChaCha20-Poly1305 Authenticated Encryption Benchmark ===");
-    Serial.println ("SAMD21 Cortex-M0+ @ 48MHz");
-    Serial.println ("Cipher: ChaCha20-Poly1305 AEAD (RFC 8439)");
-    Serial.println ("Encryption: ChaCha20 stream cipher (20 rounds)");
-    Serial.println ("Authentication: Poly1305 MAC (16-byte tag)");
-    Serial.println ("Designer: Daniel J. Bernstein");
-    Serial.print ("Free SRAM at start: ");
-    Serial.print (freeMemory ());
-    Serial.println (" b");
-    Serial.print ("Static buffer allocation: ");
-    Serial.print ((MAX_PAYLOAD * 3) + POLY1305_TAG_SIZE);
-    Serial.println (" b");
-    Serial.println ();
-    Serial.println ("Note: Encryption includes MAC computation, Decryption includes verification");
-    Serial.println ();
-    Serial.println ("Starting benchmark...");
-    Serial.println ();
-
     // Small delay to ensure serial is ready
     delay (1000);
 
-    // Run the benchmarks
-    runBenchmarks ();
+    // Print CSV header
+    Serial.println (
+        "algorithm,operation,iteration,payload_size,ciphertext_size,cpu_cycles,time_us"
+    );
 
-    Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
+    // Run all benchmarks sequentially
+    runAES128Benchmark ();
+    runAES192Benchmark ();
+    runAES256Benchmark ();
+    runAESGCM128Benchmark ();
+    runAESGCM192Benchmark ();
+    runAESGCM256Benchmark ();
+    runAESCTR128Benchmark ();
+    runAESCTR192Benchmark ();
+    runAESCTR256Benchmark ();
+    runChaCha20Benchmark ();
+    runChaCha20PolyBenchmark ();
 }
 
 void
@@ -123,127 +121,6 @@ loop ()
     delay (500);
     digitalWrite (LED_BUILTIN, LOW);
     delay (500);
-}
-
-void
-runBenchmarks ()
-{
-    // Print CSV header
-    Serial.println ("operation iteration payload_size cpu_cycles cpu_time");
-    Serial.println ();
-
-    // Calculate how many payload sizes we'll test
-    int payload_size = PAYLOAD_START;
-
-    while (payload_size <= PAYLOAD_MAX) {
-        // Fill plaintext with sequential pattern
-        fillSequentialPattern (plaintext, payload_size);
-
-        // === AUTHENTICATED ENCRYPTION BENCHMARK ===
-        // This measures both encryption AND MAC computation
-        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-            // Set the nonce for this encryption operation
-            // In real applications, the nonce MUST be unique for each message
-            // Never reuse a nonce with the same key - this breaks security
-            chachaPoly.setIV (nonce, CHACHA_NONCE_SIZE);
-
-            // Toggle measurement pin HIGH
-            digitalWrite (MEASURMENT_PIN, HIGH);
-
-            // Start timing
-            unsigned long start_time = micros ();
-
-            // Perform authenticated encryption
-            // This does TWO things:
-            // 1. Encrypts the plaintext with ChaCha20 to produce ciphertext
-            // 2. Computes Poly1305 MAC over ciphertext to produce authentication tag
-            // The tag allows the recipient to verify the message hasn't been tampered with
-            encryptDataChaChaPoly (plaintext, payload_size, ciphertext, authTag);
-
-            // End timing
-            unsigned long end_time = micros ();
-
-            // Toggle measurement pin LOW
-            digitalWrite (MEASURMENT_PIN, LOW);
-
-            // Calculate metrics
-            unsigned long elapsed_us = end_time - start_time;
-            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
-
-            // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("encrypt ");
-            Serial.print (iter);
-            Serial.print (" ");
-            Serial.print (payload_size);
-            Serial.print (" ");
-            Serial.print (cpu_cycles);
-            Serial.print (" ");
-            Serial.print (elapsed_us);
-            Serial.println (" us");
-
-            // Small delay between operations
-            delayMicroseconds (100);
-        }
-
-        // === AUTHENTICATED DECRYPTION BENCHMARK ===
-        // This measures verification AND decryption
-        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
-            // Set the same nonce used for encryption
-            // ChaCha20-Poly1305 requires the same nonce for decryption
-            chachaPoly.setIV (nonce, CHACHA_NONCE_SIZE);
-
-            // Toggle measurement pin HIGH
-            digitalWrite (MEASURMENT_PIN, HIGH);
-
-            // Start timing
-            unsigned long start_time = micros ();
-
-            // Perform authenticated decryption
-            // This does TWO things in order:
-            // 1. Recomputes Poly1305 MAC over the received ciphertext
-            // 2. Compares computed tag with received tag (constant-time comparison)
-            // 3. If tags match, decrypts ciphertext; if not, returns false
-            // IMPORTANT: We never decrypt without verifying first - this prevents
-            // processing tampered data that could exploit vulnerabilities
-            bool verified = decryptDataChaChaPoly (ciphertext, payload_size, authTag, decrypted);
-
-            // End timing
-            unsigned long end_time = micros ();
-
-            // Toggle measurement pin LOW
-            digitalWrite (MEASURMENT_PIN, LOW);
-
-            // Calculate metrics
-            unsigned long elapsed_us = end_time - start_time;
-            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
-
-            // In a real application, you would check 'verified' and reject the message if false
-            // For benchmarking, we know it should always be true since we just encrypted it
-            if (!verified) {
-                Serial.println ("ERROR: Authentication verification failed!");
-            }
-
-            // Output: operation iteration payload_size cpu_cycles cpu_time
-            Serial.print ("decrypt ");
-            Serial.print (iter);
-            Serial.print (" ");
-            Serial.print (payload_size);
-            Serial.print (" ");
-            Serial.print (cpu_cycles);
-            Serial.print (" ");
-            Serial.print (elapsed_us);
-            Serial.println (" us");
-
-            // Small delay between operations
-            delayMicroseconds (100);
-        }
-
-        // Move to next payload size
-        payload_size += PAYLOAD_INCREMENT;
-
-        // Brief pause between payload sizes
-        delay (10);
-    }
 }
 
 void
@@ -263,64 +140,1059 @@ freeMemory ()
     return &stack_dummy - sbrk (0);
 }
 
+// ============================================================================
+// AES-128 (ECB with PKCS#7 padding)
+// ============================================================================
+
 void
-encryptDataChaChaPoly (const byte *data, int data_size, byte *out, byte *tag)
+encryptDataAES128 (AES128 &aes, const byte *data, int data_size, byte *out, int &out_size)
 {
-    // Clear the cipher state to prepare for encryption
-    chachaPoly.clear ();
+    // Calculate number of blocks (round up)
+    int  block_count   = (data_size + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE;
+    int  padded_size   = block_count * AES_BLOCK_SIZE;
+    byte padding_value = padded_size - data_size;
 
-    // Optional: You can add "additional authenticated data" (AAD) here
-    // AAD is data that should be authenticated but NOT encrypted
-    // For example, packet headers, protocol version numbers, etc.
-    // For this benchmark, we're not using AAD, but here's how you would:
-    // chachaPoly.addAuthData(aad, aad_length);
+    byte cypher_buff[AES_BLOCK_SIZE];
 
-    // Encrypt the data
-    // ChaCha20 generates a keystream by performing 20 rounds of mixing
-    // on a state derived from the key and nonce, then XORs with plaintext
-    chachaPoly.encrypt (out, data, data_size);
+    for (int i = 0; i < block_count; ++i) {
+        int offset    = i * AES_BLOCK_SIZE;
+        int remaining = data_size - offset;
 
-    // Compute and retrieve the authentication tag
-    // Poly1305 evaluates a polynomial over the ciphertext (and AAD if present)
-    // using a one-time key derived from the ChaCha20 keystream
-    // The result is a 16-byte tag that authenticates all the encrypted data
-    chachaPoly.computeTag (tag, POLY1305_TAG_SIZE);
+        if (remaining >= AES_BLOCK_SIZE) {
+            // Full block - encrypt directly
+            aes.encryptBlock (cypher_buff, data + offset);
+        } else {
+            // Partial block - need padding
+            memcpy (cypher_buff, data + offset, remaining);
+            // PKCS#7 padding: fill with padding_value
+            memset (cypher_buff + remaining, padding_value, padding_value);
+            aes.encryptBlock (cypher_buff, cypher_buff);
+        }
 
-    // At this point, 'out' contains the ciphertext and 'tag' contains the MAC
-    // In a real application, you would send both to the recipient
-    // The recipient needs both pieces to decrypt and verify authenticity
+        memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
+    }
+
+    out_size = padded_size;
 }
 
-bool
-decryptDataChaChaPoly (const byte *data, int data_size, const byte *tag, byte *out)
+void
+decryptDataAES128 (AES128 &aes, const byte *data, int data_size, byte *out)
 {
-    // Clear the cipher state to prepare for decryption
-    chachaPoly.clear ();
+    // data_size must be multiple of AES_BLOCK_SIZE
+    if (data_size % AES_BLOCK_SIZE != 0) {
+        return;
+    }
 
-    // If we used AAD during encryption, we must provide the SAME AAD here
-    // The authentication will fail if the AAD doesn't match exactly
-    // chachaPoly.addAuthData(aad, aad_length);
+    int  block_count = data_size / AES_BLOCK_SIZE;
+    byte plain_buff[AES_BLOCK_SIZE];
 
-    // Decrypt the data
-    // In ChaCha20, decryption is identical to encryption - we generate
-    // the same keystream and XOR it with the ciphertext to recover plaintext
-    chachaPoly.decrypt (out, data, data_size);
+    for (int i = 0; i < block_count; ++i) {
+        int offset = i * AES_BLOCK_SIZE;
+        aes.decryptBlock (plain_buff, data + offset);
+        memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
+    }
 
-    // Verify the authentication tag
-    // This recomputes the Poly1305 MAC over the ciphertext (and AAD)
-    // and compares it with the received tag using constant-time comparison
-    // Constant-time comparison is crucial - it prevents timing attacks where
-    // an attacker could learn information by measuring how long verification takes
-    bool verified = chachaPoly.checkTag (tag, POLY1305_TAG_SIZE);
+    // Remove PKCS#7 padding from last block
+    byte padding_value = out[data_size - 1];
 
-    // CRITICAL SECURITY NOTE:
-    // In production code, you MUST check this return value
-    // If verified is false, discard the decrypted data immediately
-    // Never use data that failed authentication - it may be malicious
-    //
-    // In this benchmark, we're measuring the time to verify and decrypt
-    // We know verification should succeed because we just encrypted the data
-    // But in real applications, verification failures indicate attacks or corruption
+    // Validate and remove padding
+    if (padding_value > 0 && padding_value <= AES_BLOCK_SIZE) {
+        bool valid_padding = true;
+        for (int i = 0; i < padding_value; i++) {
+            if (out[data_size - 1 - i] != padding_value) {
+                valid_padding = false;
+                break;
+            }
+        }
 
-    return verified;
+        if (valid_padding) {
+            // Zero out padding bytes
+            memset (out + data_size - padding_value, 0, padding_value);
+        }
+    }
+}
+
+void
+runAES128Benchmark ()
+{
+    AES128 aes128;
+    aes128.setKey (key128, 16);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        // Fill plaintext with sequential pattern
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = 0;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            encryptDataAES128 (aes128, plaintext, payload_size, ciphertext, ciphertext_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES128,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            decryptDataAES128 (aes128, ciphertext, ciphertext_size, decrypted);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES128,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-192 (ECB with PKCS#7 padding)
+// ============================================================================
+
+void
+encryptDataAES192 (AES192 &aes, const byte *data, int data_size, byte *out, int &out_size)
+{
+    int  block_count   = (data_size + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE;
+    int  padded_size   = block_count * AES_BLOCK_SIZE;
+    byte padding_value = padded_size - data_size;
+
+    byte cypher_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset    = i * AES_BLOCK_SIZE;
+        int remaining = data_size - offset;
+
+        if (remaining >= AES_BLOCK_SIZE) {
+            aes.encryptBlock (cypher_buff, data + offset);
+        } else {
+            memcpy (cypher_buff, data + offset, remaining);
+            memset (cypher_buff + remaining, padding_value, padding_value);
+            aes.encryptBlock (cypher_buff, cypher_buff);
+        }
+
+        memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
+    }
+
+    out_size = padded_size;
+}
+
+void
+decryptDataAES192 (AES192 &aes, const byte *data, int data_size, byte *out)
+{
+    if (data_size % AES_BLOCK_SIZE != 0) {
+        return;
+    }
+
+    int  block_count = data_size / AES_BLOCK_SIZE;
+    byte plain_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset = i * AES_BLOCK_SIZE;
+        aes.decryptBlock (plain_buff, data + offset);
+        memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
+    }
+
+    byte padding_value = out[data_size - 1];
+
+    if (padding_value > 0 && padding_value <= AES_BLOCK_SIZE) {
+        bool valid_padding = true;
+        for (int i = 0; i < padding_value; i++) {
+            if (out[data_size - 1 - i] != padding_value) {
+                valid_padding = false;
+                break;
+            }
+        }
+
+        if (valid_padding) {
+            memset (out + data_size - padding_value, 0, padding_value);
+        }
+    }
+}
+
+void
+runAES192Benchmark ()
+{
+    AES192 aes192;
+    aes192.setKey (key192, 24);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = 0;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            encryptDataAES192 (aes192, plaintext, payload_size, ciphertext, ciphertext_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES192,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            decryptDataAES192 (aes192, ciphertext, ciphertext_size, decrypted);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES192,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-256 (ECB with PKCS#7 padding)
+// ============================================================================
+
+void
+encryptDataAES256 (AES256 &aes, const byte *data, int data_size, byte *out, int &out_size)
+{
+    int  block_count   = (data_size + AES_BLOCK_SIZE - 1) / AES_BLOCK_SIZE;
+    int  padded_size   = block_count * AES_BLOCK_SIZE;
+    byte padding_value = padded_size - data_size;
+
+    byte cypher_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset    = i * AES_BLOCK_SIZE;
+        int remaining = data_size - offset;
+
+        if (remaining >= AES_BLOCK_SIZE) {
+            aes.encryptBlock (cypher_buff, data + offset);
+        } else {
+            memcpy (cypher_buff, data + offset, remaining);
+            memset (cypher_buff + remaining, padding_value, padding_value);
+            aes.encryptBlock (cypher_buff, cypher_buff);
+        }
+
+        memcpy (out + offset, cypher_buff, AES_BLOCK_SIZE);
+    }
+
+    out_size = padded_size;
+}
+
+void
+decryptDataAES256 (AES256 &aes, const byte *data, int data_size, byte *out)
+{
+    if (data_size % AES_BLOCK_SIZE != 0) {
+        return;
+    }
+
+    int  block_count = data_size / AES_BLOCK_SIZE;
+    byte plain_buff[AES_BLOCK_SIZE];
+
+    for (int i = 0; i < block_count; ++i) {
+        int offset = i * AES_BLOCK_SIZE;
+        aes.decryptBlock (plain_buff, data + offset);
+        memcpy (out + offset, plain_buff, AES_BLOCK_SIZE);
+    }
+
+    byte padding_value = out[data_size - 1];
+
+    if (padding_value > 0 && padding_value <= AES_BLOCK_SIZE) {
+        bool valid_padding = true;
+        for (int i = 0; i < padding_value; i++) {
+            if (out[data_size - 1 - i] != padding_value) {
+                valid_padding = false;
+                break;
+            }
+        }
+
+        if (valid_padding) {
+            memset (out + data_size - padding_value, 0, padding_value);
+        }
+    }
+}
+
+void
+runAES256Benchmark ()
+{
+    AES256 aes256;
+    aes256.setKey (key256, 32);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = 0;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            encryptDataAES256 (aes256, plaintext, payload_size, ciphertext, ciphertext_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES256,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            decryptDataAES256 (aes256, ciphertext, ciphertext_size, decrypted);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES256,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-GCM-128 (AEAD)
+// ============================================================================
+
+void
+runAESGCM128Benchmark ()
+{
+    GCM<AES128> aesgcm128;
+    aesgcm128.setKey (key128, 16);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size + TAG_SIZE;
+
+        // === ENCRYPTION + TAG GENERATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm128.setIV (iv_12, IV_SIZE_12);
+            aesgcm128.encrypt (ciphertext, plaintext, payload_size);
+            aesgcm128.computeTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-128,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION + TAG VERIFICATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm128.setIV (iv_12, IV_SIZE_12);
+            aesgcm128.decrypt (decrypted, ciphertext, payload_size);
+            bool verified = aesgcm128.checkTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-128,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-GCM-192 (AEAD)
+// ============================================================================
+
+void
+runAESGCM192Benchmark ()
+{
+    GCM<AES192> aesgcm192;
+    aesgcm192.setKey (key192, 24);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size + TAG_SIZE;
+
+        // === ENCRYPTION + TAG GENERATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm192.setIV (iv_12, IV_SIZE_12);
+            aesgcm192.encrypt (ciphertext, plaintext, payload_size);
+            aesgcm192.computeTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-192,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION + TAG VERIFICATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm192.setIV (iv_12, IV_SIZE_12);
+            aesgcm192.decrypt (decrypted, ciphertext, payload_size);
+            bool verified = aesgcm192.checkTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-192,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-GCM-256 (AEAD)
+// ============================================================================
+
+void
+runAESGCM256Benchmark ()
+{
+    GCM<AES256> aesgcm256;
+    aesgcm256.setKey (key256, 32);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size + TAG_SIZE;
+
+        // === ENCRYPTION + TAG GENERATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm256.setIV (iv_12, IV_SIZE_12);
+            aesgcm256.encrypt (ciphertext, plaintext, payload_size);
+            aesgcm256.computeTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-256,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION + TAG VERIFICATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesgcm256.setIV (iv_12, IV_SIZE_12);
+            aesgcm256.decrypt (decrypted, ciphertext, payload_size);
+            bool verified = aesgcm256.checkTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-GCM-256,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-CTR-128 (Stream cipher mode)
+// ============================================================================
+
+void
+runAESCTR128Benchmark ()
+{
+    CTR<AES128> aesctr128;
+    aesctr128.setKey (key128, 16);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size; // CTR mode doesn't add padding
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr128.setIV (iv_16, IV_SIZE_16);
+            aesctr128.setCounterSize (4);
+            aesctr128.encrypt (ciphertext, plaintext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-128,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr128.setIV (iv_16, IV_SIZE_16);
+            aesctr128.setCounterSize (4);
+            aesctr128.decrypt (decrypted, ciphertext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-128,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-CTR-192 (Stream cipher mode)
+// ============================================================================
+
+void
+runAESCTR192Benchmark ()
+{
+    CTR<AES192> aesctr192;
+    aesctr192.setKey (key192, 24);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr192.setIV (iv_16, IV_SIZE_16);
+            aesctr192.setCounterSize (4);
+            aesctr192.encrypt (ciphertext, plaintext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-192,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr192.setIV (iv_16, IV_SIZE_16);
+            aesctr192.setCounterSize (4);
+            aesctr192.decrypt (decrypted, ciphertext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-192,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// AES-CTR-256 (Stream cipher mode)
+// ============================================================================
+
+void
+runAESCTR256Benchmark ()
+{
+    CTR<AES256> aesctr256;
+    aesctr256.setKey (key256, 32);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr256.setIV (iv_16, IV_SIZE_16);
+            aesctr256.setCounterSize (4);
+            aesctr256.encrypt (ciphertext, plaintext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-256,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            aesctr256.setIV (iv_16, IV_SIZE_16);
+            aesctr256.setCounterSize (4);
+            aesctr256.decrypt (decrypted, ciphertext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("AES-CTR-256,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// ChaCha20 (Stream cipher)
+// ============================================================================
+
+void
+runChaCha20Benchmark ()
+{
+    ChaCha chacha20;
+    chacha20.setKey (key256, 32);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size;
+
+        // === ENCRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            chacha20.setIV (iv_12, IV_SIZE_12);
+            chacha20.setCounter (0, 0);
+            chacha20.encrypt (ciphertext, plaintext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("ChaCha20,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            chacha20.setIV (iv_12, IV_SIZE_12);
+            chacha20.setCounter (0, 0);
+            chacha20.decrypt (decrypted, ciphertext, payload_size);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("ChaCha20,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
+}
+
+// ============================================================================
+// ChaCha20-Poly1305 (AEAD)
+// ============================================================================
+
+void
+runChaCha20PolyBenchmark ()
+{
+    ChaChaPoly chachapoly;
+    chachapoly.setKey (key256, 32);
+
+    int payload_size = PAYLOAD_START;
+
+    while (payload_size <= PAYLOAD_MAX) {
+        fillSequentialPattern (plaintext, payload_size);
+
+        int ciphertext_size = payload_size + TAG_SIZE;
+
+        // === ENCRYPTION + TAG GENERATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            chachapoly.setIV (iv_12, IV_SIZE_12);
+            chachapoly.encrypt (ciphertext, plaintext, payload_size);
+            chachapoly.computeTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("ChaCha20-Poly1305,encrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        // === DECRYPTION + TAG VERIFICATION BENCHMARK ===
+        for (int iter = 1; iter <= ITERATIONS_PER_SIZE; iter++) {
+            digitalWrite (MEASURMENT_PIN, HIGH);
+            unsigned long start_time = micros ();
+
+            chachapoly.setIV (iv_12, IV_SIZE_12);
+            chachapoly.decrypt (decrypted, ciphertext, payload_size);
+            bool verified = chachapoly.checkTag (tag, TAG_SIZE);
+
+            unsigned long end_time = micros ();
+            digitalWrite (MEASURMENT_PIN, LOW);
+
+            unsigned long elapsed_us = end_time - start_time;
+            unsigned long cpu_cycles = elapsed_us * CPU_FREQ_MHZ;
+
+            Serial.print ("ChaCha20-Poly1305,decrypt,");
+            Serial.print (iter);
+            Serial.print (",");
+            Serial.print (payload_size);
+            Serial.print (",");
+            Serial.print (ciphertext_size);
+            Serial.print (",");
+            Serial.print (cpu_cycles);
+            Serial.print (",");
+            Serial.println (elapsed_us);
+
+            delayMicroseconds (100);
+        }
+
+        payload_size += PAYLOAD_INCREMENT;
+        delay (10);
+    }
 }

@@ -45,7 +45,7 @@ uint32_t         getCurrentCpuFreqMhz ();
 void             setPowerState (PowerState state);
 float            estimateCurrentDraw (uint32_t freq_mhz);
 int              freeMemory ();
-extern "C" char *sbrk (int incr);
+extern C char *sbrk (int incr);
 
 // AES256-GCM authenticated encryption
 // Uses AES with 256-bit key (14 rounds) for maximum security
@@ -90,37 +90,37 @@ setup ()
     pinMode (MEASURMENT_PIN, OUTPUT);
     digitalWrite (MEASURMENT_PIN, LOW);
 
-    Serial.println ("=== AES256-GCM Authenticated Encryption Benchmark ===");
-    Serial.println ("=== Raspberry Pi Pico 2W (RP2350) ===");
+    Serial.println (=== AES256-GCM Authenticated Encryption Benchmark ===);
+    Serial.println (=== Raspberry Pi Pico 2W (RP2350) ===);
     
     // Print chip information
-    Serial.print ("Architecture: ");
+    Serial.print (Architecture: );
     #ifdef PICO_RISCV
-        Serial.println ("RISC-V Hazard3");
+        Serial.println (RISC-V Hazard3);
     #else
-        Serial.println ("ARM Cortex-M33");
+        Serial.println (ARM Cortex-M33);
     #endif
     
-    Serial.print ("Starting CPU Frequency: ");
+    Serial.print (Starting CPU Frequency: );
     Serial.print (getCurrentCpuFreqMhz ());
-    Serial.println (" MHz");
+    Serial.println ( MHz);
     
-    Serial.println ("Mode: Galois/Counter Mode (GCM) AEAD");
-    Serial.println ("Encryption: AES256 in CTR mode (14 rounds)");
-    Serial.println ("Authentication: GMAC using Galois field arithmetic");
+    Serial.println (Mode: Galois/Counter Mode (GCM) AEAD);
+    Serial.println (Encryption: AES256 in CTR mode (14 rounds));
+    Serial.println (Authentication: GMAC using Galois field arithmetic);
     
-    Serial.print ("Free SRAM at start: ");
+    Serial.print (Free SRAM at start: );
     Serial.print (freeMemory ());
-    Serial.println (" bytes");
+    Serial.println ( bytes);
     
-    Serial.print ("Static buffer allocation: ");
+    Serial.print (Static buffer allocation: );
     Serial.print ((MAX_PAYLOAD * 3) + GCM_TAG_SIZE);
-    Serial.println (" bytes");
+    Serial.println ( bytes);
     
     Serial.println ();
-    Serial.println ("Testing at multiple CPU frequencies...");
+    Serial.println (Testing at multiple CPU frequencies...);
     Serial.println ();
-    Serial.println ("Starting benchmark...");
+    Serial.println (Starting benchmark...);
     Serial.println ();
 
     delay (1000);
@@ -130,10 +130,10 @@ setup ()
     setCpuFrequency (150);
     
     Serial.println ();
-    Serial.println ("=== Benchmark Complete ===");
-    Serial.print ("Final CPU Frequency: ");
+    Serial.println (=== Benchmark Complete ===);
+    Serial.print (Final CPU Frequency: );
     Serial.print (getCurrentCpuFreqMhz ());
-    Serial.println (" MHz");
+    Serial.println ( MHz);
 }
 
 void
@@ -149,7 +149,7 @@ void
 runBenchmarks ()
 {
     // Print CSV header with power metrics
-    Serial.println ("operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj");
+    Serial.println (operation iteration payload_size cpu_freq_mhz cpu_cycles time_us current_ma energy_mj);
     Serial.println ();
 
     // Power states to test
@@ -189,19 +189,19 @@ runBenchmarks ()
                 float time_s = elapsed_us / 1000000.0;
                 float energy_mj = voltage * current_a * time_s * 1000.0;
 
-                Serial.print ("encrypt ");
+                Serial.print (encrypt );
                 Serial.print (iter);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (payload_size);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (cpu_freq_mhz);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (cpu_cycles);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (elapsed_us);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (estimated_current_ma, 1);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (energy_mj, 3);
                 Serial.println ();
 
@@ -230,22 +230,22 @@ runBenchmarks ()
                 float energy_mj = voltage * current_a * time_s * 1000.0;
 
                 if (!verified) {
-                    Serial.println ("ERROR: Authentication failed!");
+                    Serial.println (ERROR: Authentication failed!);
                 }
 
-                Serial.print ("decrypt ");
+                Serial.print (decrypt );
                 Serial.print (iter);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (payload_size);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (cpu_freq_mhz);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (cpu_cycles);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (elapsed_us);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (estimated_current_ma, 1);
-                Serial.print (" ");
+                Serial.print ( );
                 Serial.print (energy_mj, 3);
                 Serial.println ();
 
@@ -273,7 +273,7 @@ setCpuFrequency (uint32_t freq_mhz)
         current_cpu_freq_mhz = freq_mhz;
         sleep_ms (10);
     } else {
-        Serial.println ("ERROR: Failed to set clock frequency!");
+        Serial.println (ERROR: Failed to set clock frequency!);
     }
 }
 
